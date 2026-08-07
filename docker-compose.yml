@@ -1,0 +1,43 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: fleger-warehouse-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: fleger_warehouse
+    volumes:
+      - mongo_data:/data/db
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    profiles:
+      - app
+    depends_on:
+      - mongo
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      API_PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/fleger_warehouse
+      JWT_ACCESS_SECRET: change-me-access
+      JWT_REFRESH_SECRET: change-me-refresh
+      CORS_ORIGIN: http://localhost:4200
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    profiles:
+      - app
+    depends_on:
+      - api
+    ports:
+      - "4200:80"
+
+volumes:
+  mongo_data:

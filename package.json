@@ -1,0 +1,25 @@
+{
+  "name": "fleger-warehouse",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "api:dev": "npm run start:dev -w apps/api",
+    "api:build": "npm run build -w apps/api",
+    "api:test": "npm run test -w apps/api",
+    "api:mongo:init": "npm run mongo:init -w apps/api",
+    "api:seed": "npm run seed -w apps/api",
+    "api:promote:super-admin": "npm run promote:super-admin -w apps/api",
+    "web:dev": "npm run start -w apps/web",
+    "web:build": "npm run build -w apps/web",
+    "web:test": "npm run test -w apps/web",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}
