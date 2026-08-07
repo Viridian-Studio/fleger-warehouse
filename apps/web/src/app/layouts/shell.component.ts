@@ -247,7 +247,7 @@ import { ToastOutletComponent } from "../shared/ui/toast-outlet.component";
       align-items: center;
       gap: 8px;
       width: min(360px, 34vw);
-      height: 38px;
+      height: 45px;
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 0 10px;
