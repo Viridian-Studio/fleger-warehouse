@@ -105,14 +105,6 @@ async function main() {
     systemRole: true
   });
 
-  const flegerAdmin = await User.create({
-    username: 'imjpeti',
-    email: 'jovanovicsp@gmail.com',
-    passwordHash: flegerPasswordHash,
-    globalStatus: 'ACTIVE',
-    platformAdmin: true,
-    superAdmin: true
-  });
   const acmeAdmin = await User.create({ username: 'acme-admin', email: 'admin@acme.test', passwordHash, globalStatus: 'ACTIVE' });
   const demoAdmin = await User.create({ username: 'demo-admin', email: 'admin@demo.test', passwordHash, globalStatus: 'ACTIVE' });
 

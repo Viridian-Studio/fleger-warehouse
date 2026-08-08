@@ -57,7 +57,6 @@ interface LoginResponse {
         <div class="demo">
           <strong>Demo users</strong>
           <span>platform@fleger.test</span>
-          <span>jovanovicsp@gmail.com</span>
           <span>admin@acme.test</span>
           <span>admin@demo.test</span>
           <small>Fleger password: Nemtom10</small>
@@ -169,8 +168,8 @@ export class LoginComponent {
   readonly loading = signal(false);
   readonly error = signal("");
   readonly form = this.fb.nonNullable.group({
-    email: ["jovanovicsp@gmail.com", [Validators.required]],
-    password: ["Nemtom10", [Validators.required, Validators.minLength(8)]],
+    email: ["", [Validators.required]],
+    password: ["", [Validators.required, Validators.minLength(8)]],
   });
 
   submit() {

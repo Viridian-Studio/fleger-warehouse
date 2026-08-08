@@ -77,7 +77,6 @@ Seedelt demo belépési adatok:
 admin@acme.test / Password123!
 admin@demo.test / Password123!
 platform@fleger.test / Password123!
-jovanovicsp@gmail.com / Nemtom10
 ```
 
 A saját Fleger admin user super adminként is seedelődik, így a Platform Admin képernyőn az összes tenantot látja.

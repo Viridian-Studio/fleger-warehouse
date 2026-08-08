@@ -7,7 +7,7 @@ import { UserSchema } from './modules/users/schemas/user.schema';
 config({ path: resolve(__dirname, '../.env') });
 
 async function main() {
-  const email = process.argv[2]?.toLowerCase() ?? 'jovanovicsp@gmail.com';
+  const email = process.argv[2]?.toLowerCase() ?? 'john@doe.com';
   await mongoose.connect(process.env.MONGODB_URI ?? 'mongodb://localhost:27017/fleger_warehouse');
 
   const User = mongoose.model('User', UserSchema);
