@@ -81,8 +81,8 @@ interface NavGroup {
               [title]="'shell.workspace' | translate"
               aria-label="Workspace"
             >
-              @for (workspace of tenantStore.workspaces(); track workspace.tenantSlug) {
-                <option [value]="workspace.tenantSlug">{{ workspace.tenantSlug }}</option>
+              @for (slug of workspaceSlugs(); track slug) {
+                <option [value]="slug">{{ slug }}</option>
               }
             </select>
             <span class="workspace-caret" [appIcon]="'ChevronDown'" [size]="14"></span>
@@ -234,8 +234,8 @@ interface NavGroup {
             <div class="workspace-select">
               <span class="workspace-glyph" [appIcon]="'Building2'" [size]="16"></span>
               <select [value]="activeSlug()" (change)="switchTenant($event)" aria-label="Workspace">
-                @for (workspace of tenantStore.workspaces(); track workspace.tenantSlug) {
-                  <option [value]="workspace.tenantSlug">{{ workspace.tenantSlug }}</option>
+                @for (slug of workspaceSlugs(); track slug) {
+                  <option [value]="slug">{{ slug }}</option>
                 }
               </select>
             </div>
@@ -577,6 +577,13 @@ export class ShellComponent {
   readonly activeSlug = computed(
     () => this.tenantStore.activeWorkspace()?.tenantSlug ?? ''
   );
+  /** Slugs available in the workspace switcher: own memberships + all tenants for admins. */
+  readonly workspaceSlugs = computed<string[]>(() => {
+    const own = this.tenantStore.workspaces().map((w) => w.tenantSlug);
+    const all = this.tenantStore.allTenants().map((t) => t.slug);
+    const merged = [...own, ...all.filter((slug) => !own.includes(slug))];
+    return merged.length > 0 ? merged : own;
+  });
   readonly userEmail = computed(() => this.auth.user()?.email ?? 'Unknown user');
   readonly initials = computed(() => {
     const email = this.auth.user()?.email ?? 'FW';
@@ -640,6 +647,14 @@ export class ShellComponent {
     effect(() => {
       this.tenantStore.activeWorkspace();
       this.loadNotifications();
+    });
+
+    // Super/platform admins can switch into any tenant — load them all.
+    effect(() => {
+      const user = this.auth.user();
+      if (user?.platformAdmin || user?.superAdmin) {
+        untracked(() => this.tenantStore.loadAllTenants());
+      }
     });
 
     this.router.events.subscribe(() => {
