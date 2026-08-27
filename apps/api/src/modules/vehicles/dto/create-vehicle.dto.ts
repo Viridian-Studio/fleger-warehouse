@@ -20,6 +20,22 @@ export class CreateVehicleDto {
   vin?: string;
 
   @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
+  @IsIn(['petrol', 'diesel', 'electric', 'hybrid', 'lpg', 'other'])
+  fuelType?: string;
+
+  @IsOptional()
+  @IsString()
+  registrationDate?: string;
+
+  @IsOptional()
+  @IsString()
+  insurancePolicyNumber?: string;
+
+  @IsOptional()
   @IsNumber()
   currentMileage?: number;
 

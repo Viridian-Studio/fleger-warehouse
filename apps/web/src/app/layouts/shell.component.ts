@@ -31,6 +31,7 @@ interface NavItem {
   path: string;
   labelKey: string;
   icon: AppIconName;
+  permission?: string;
 }
 
 interface NavGroup {
@@ -593,6 +594,9 @@ export class ShellComponent {
   readonly navGroups = computed<NavGroup[]>(() => {
     const user = this.auth.user();
     const isAdmin = user?.platformAdmin === true || user?.superAdmin === true;
+    const permissions = new Set(this.tenantStore.activeWorkspace()?.permissions ?? []);
+
+    const hasPermission = (item: NavItem) => !item.permission || permissions.has(item.permission) || isAdmin;
 
     const groups: NavGroup[] = [
       {
@@ -611,6 +615,7 @@ export class ShellComponent {
           { path: '/team', labelKey: 'shell.nav.team', icon: 'UserPlus' },
           { path: '/roles', labelKey: 'shell.nav.roles', icon: 'ShieldCheck' },
           { path: '/audit-log', labelKey: 'shell.nav.auditLog', icon: 'ScrollText' },
+          { path: '/updates', labelKey: 'shell.nav.updates', icon: 'Sparkles', permission: 'updates.read' },
         ],
       },
       {
@@ -622,8 +627,10 @@ export class ShellComponent {
       },
     ];
 
-    // Filter out empty groups
-    return groups.filter((g) => g.items.length > 0);
+    // Filter items by permission, then filter out empty groups
+    return groups
+      .map((g) => ({ ...g, items: g.items.filter(hasPermission) }))
+      .filter((g) => g.items.length > 0);
   });
 
   readonly commands = computed<CommandItem[]>(() => {

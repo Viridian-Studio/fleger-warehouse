@@ -69,7 +69,9 @@ const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { value: 'audit.read', label: 'Read audit log', description: 'Inspect workspace activity history.' },
       { value: 'role.manage', label: 'Manage roles', description: 'Create and edit roles and permissions.' },
-      { value: 'settings.manage', label: 'Manage settings', description: 'Change workspace-level settings.' }
+      { value: 'settings.manage', label: 'Manage settings', description: 'Change workspace-level settings.' },
+      { value: 'updates.read', label: 'Read updates', description: 'View build release notes and changelogs.' },
+      { value: 'updates.manage', label: 'Manage updates', description: 'Create and publish new build release notes.' }
     ]
   }
 ];

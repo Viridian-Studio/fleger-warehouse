@@ -25,6 +25,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { HealthModule } from './modules/health/health.module';
 import { ApplicationDetailsModule } from './modules/application-details/application-details.module';
 import { SearchModule } from './modules/search/search.module';
+import { UpdatesModule } from './modules/updates/updates.module';
 import { TenantGuardModule } from './common/tenant/tenant-guard.module';
 
 @Module({
@@ -57,6 +58,7 @@ import { TenantGuardModule } from './common/tenant/tenant-guard.module';
     HealthModule,
     ApplicationDetailsModule,
     SearchModule,
+    UpdatesModule,
     TenantGuardModule
   ],
   providers: [

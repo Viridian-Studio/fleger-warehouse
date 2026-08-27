@@ -36,7 +36,9 @@ const ALL_PERMISSIONS = [
   'user.disable',
   'audit.read',
   'role.manage',
-  'settings.manage'
+  'settings.manage',
+  'updates.read',
+  'updates.manage'
 ];
 
 async function main() {

@@ -29,6 +29,7 @@ export class VehiclesService {
       ...dto,
       licensePlate,
       currentMileage: dto.currentMileage ?? 0,
+      registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : undefined,
       inspectionExpiry: dto.inspectionExpiry ? new Date(dto.inspectionExpiry) : undefined,
       insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
       status: 'AVAILABLE',
@@ -37,7 +38,11 @@ export class VehiclesService {
   }
 
   update(ctx: TenantContext, id: string, dto: Partial<CreateVehicleDto>) {
-    return this.repo.updateById(ctx, id, dto);
+    const update: Record<string, unknown> = { ...dto };
+    if (dto.registrationDate) update.registrationDate = new Date(dto.registrationDate);
+    if (dto.inspectionExpiry) update.inspectionExpiry = new Date(dto.inspectionExpiry);
+    if (dto.insuranceExpiry) update.insuranceExpiry = new Date(dto.insuranceExpiry);
+    return this.repo.updateById(ctx, id, update);
   }
 
   remove(ctx: TenantContext, id: string) {

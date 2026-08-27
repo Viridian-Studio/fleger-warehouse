@@ -23,6 +23,15 @@ export class Vehicle {
   @Prop({ type: String })
   vin?: string;
 
+  @Prop({ type: String })
+  color?: string;
+
+  @Prop({ type: String, enum: ['petrol', 'diesel', 'electric', 'hybrid', 'lpg', 'other'] })
+  fuelType?: string;
+
+  @Prop({ type: Date })
+  registrationDate?: Date;
+
   @Prop({ type: Number, default: 0 })
   currentMileage!: number;
 
@@ -40,6 +49,9 @@ export class Vehicle {
 
   @Prop({ type: Date })
   insuranceExpiry?: Date;
+
+  @Prop({ type: String })
+  insurancePolicyNumber?: string;
 
   @Prop({ type: String })
   notes?: string;

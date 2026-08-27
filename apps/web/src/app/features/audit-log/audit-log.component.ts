@@ -13,6 +13,7 @@ interface AuditLog {
   entityId: string;
   timestamp: string;
   actorUserId: string;
+  actorName?: string;
 }
 
 @Component({
@@ -56,7 +57,7 @@ interface AuditLog {
               <div class="row">
                 <span class="badge badge--brand">{{ log.action }}</span>
                 <span class="truncate"><span class="col-muted">{{ log.entityType }}</span> · <span class="mono">{{ log.entityId }}</span></span>
-                <span class="col-muted mono truncate">{{ log.actorUserId }}</span>
+                <span class="col-muted truncate">{{ log.actorName || log.actorUserId }}</span>
                 <span class="col-muted">{{ log.timestamp | date: 'yyyy-MM-dd HH:mm' }}</span>
               </div>
             }
