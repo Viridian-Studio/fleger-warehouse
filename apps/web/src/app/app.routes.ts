@@ -12,7 +12,6 @@ import { RolesComponent } from './features/roles/roles.component';
 import { AuditLogComponent } from './features/audit-log/audit-log.component';
 import { SettingsComponent } from './features/settings/settings.component';
 import { PlatformAdminComponent } from './features/platform-admin/platform-admin.component';
-import { BillingComponent } from './features/billing/billing.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
@@ -32,7 +31,6 @@ export const routes: Routes = [
       { path: 'roles', component: RolesComponent },
       { path: 'audit-log', component: AuditLogComponent },
       { path: 'settings', component: SettingsComponent },
-      { path: 'billing', component: BillingComponent },
       { path: 'platform-admin', component: PlatformAdminComponent }
     ]
   },

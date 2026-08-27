@@ -5,6 +5,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { TenantScopedRepository } from '../../common/tenant/tenant-scoped.repository';
+import { nextSequentialNumber } from '../../common/tenant/number-generator';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { InventoryItem } from './schemas/inventory-item.schema';
 import { InventoryTransaction } from './schemas/inventory-transaction.schema';
@@ -86,14 +87,13 @@ export class InventoryService {
       entityId: String((item as any)._id),
       metadata: { availableQuantity: item.availableQuantity, lowStockThreshold: item.lowStockThreshold }
     });
-    await this.notifications.create({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      type: 'inventory.low_stock',
-      title: 'Low stock alert',
-      message: `${item.name} is below the low stock threshold (${item.availableQuantity} / ${item.lowStockThreshold})`,
-      link: `/inventory`
-    });
+    await this.notifications.broadcastToTenant(
+      ctx,
+      'inventory.low_stock',
+      'Low stock alert',
+      `${item.name} is below the low stock threshold (${item.availableQuantity} / ${item.lowStockThreshold})`,
+      '/inventory'
+    );
   }
 
   async reserve(ctx: TenantContext, itemId: string, quantity: number, target: { employeeId?: string; vehicleId?: string }) {
@@ -244,16 +244,7 @@ export class InventoryService {
   }
 
   private async nextInventoryNumber(ctx: TenantContext) {
-    const items = await this.items
-      .find({ tenantId: ctx.tenantId, inventoryNumber: /^INV-\d+$/ })
-      .select({ inventoryNumber: 1 })
-      .lean();
-    const next = items.reduce((max, item) => {
-      const match = item.inventoryNumber?.match(/^INV-(\d+)$/);
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0) + 1;
-
-    return `INV-${String(next).padStart(6, '0')}`;
+    return nextSequentialNumber(this.items, ctx, 'inventoryNumber', 'INV');
   }
 
   private isDuplicateKeyError(error: unknown) {

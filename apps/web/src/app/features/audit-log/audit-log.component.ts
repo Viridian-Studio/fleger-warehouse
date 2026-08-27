@@ -1,7 +1,10 @@
 import { DatePipe } from '@angular/common';
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { ApiService } from '../../core/api/api.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
+import { IconDirective } from '../../shared/ui/icon.directive';
+import { TooltipDirective } from '../../shared/ui/tooltip.directive';
+import { EmptyStateComponent } from '../../shared/ui/feedback.component';
 
 interface AuditLog {
   _id: string;
@@ -15,50 +18,90 @@ interface AuditLog {
 @Component({
   selector: 'app-audit-log',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, IconDirective, TooltipDirective, EmptyStateComponent],
   template: `
     <section class="page">
-      <div class="title-row"><h1>Audit Logs</h1><span>{{ logs().length }} recent events</span></div>
-      <div class="table">
-        <div class="row head"><span>Action</span><span>Entity</span><span>Actor</span><span>Time</span></div>
-        @for (log of logs(); track log._id) {
-          <div class="row">
-            <span>{{ log.action }}</span>
-            <span>{{ log.entityType }} · {{ log.entityId }}</span>
-            <span>{{ log.actorUserId }}</span>
-            <span>{{ log.timestamp | date: 'yyyy-MM-dd HH:mm' }}</span>
-          </div>
-        }
+      <div class="page-header">
+        <div class="page-title">
+          <h1>Audit Logs</h1>
+          <p>{{ logs().length }} recent events across the workspace.</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="load()" appTooltip="Refresh">
+            @if (loading()) { <span class="spinner"></span> } @else { <span appIcon="RefreshCw" [size]="16"></span> }
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <div class="table-title"><h2>Activity</h2><span class="table-meta">{{ logs().length }} events</span></div>
+        <div class="table-scroll">
+          @if (loading()) {
+            <div class="skeleton-list">
+              @for (i of skeletons; track i) {
+                <div class="skeleton-row">
+                  <span class="skeleton skeleton--line" style="width: 22%"></span>
+                  <span class="skeleton skeleton--line" style="width: 28%"></span>
+                  <span class="skeleton skeleton--line" style="width: 18%"></span>
+                  <span class="skeleton skeleton--line" style="width: 16%"></span>
+                </div>
+              }
+            </div>
+          } @else if (logs().length === 0) {
+            <app-empty-state icon="ScrollText" title="No audit events yet" description="Workspace activity will appear here as your team performs actions."></app-empty-state>
+          } @else {
+            <div class="row head"><span>Action</span><span>Entity</span><span>Actor</span><span>Time</span></div>
+            @for (log of logs(); track log._id) {
+              <div class="row">
+                <span class="badge badge--brand">{{ log.action }}</span>
+                <span class="truncate"><span class="col-muted">{{ log.entityType }}</span> · <span class="mono">{{ log.entityId }}</span></span>
+                <span class="col-muted mono truncate">{{ log.actorUserId }}</span>
+                <span class="col-muted">{{ log.timestamp | date: 'yyyy-MM-dd HH:mm' }}</span>
+              </div>
+            }
+          }
+        </div>
       </div>
     </section>
   `,
-  styles: `
-    .page { display: grid; gap: 18px; }
-    .title-row { display: flex; justify-content: space-between; align-items: center; }
-    h1 { margin: 0; font-size: 28px; }
-    .title-row span { color: var(--muted); }
-    .table { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: white; }
-    .row { display: grid; grid-template-columns: 1fr 1.2fr 1fr .9fr; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  styles: [`
+    .row { display: grid; grid-template-columns: 1fr 1.2fr 1fr .9fr; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft); align-items: center; }
     .row:first-child { border-top: 0; }
-    .head { color: var(--muted); background: #f4f6fa; font-size: 13px; font-weight: 700; }
-  `
+    .row.head { color: var(--muted); background: var(--surface-soft); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+    @media (max-width: 800px) {
+      .row { grid-template-columns: 1fr 1fr; font-size: 13px; }
+      .row span:nth-child(3) { display: none; }
+      .row.head { display: none; }
+    }
+  `]
 })
 export class AuditLogComponent {
   private readonly api = inject(ApiService);
   private readonly tenants = inject(TenantStore);
   readonly logs = signal<AuditLog[]>([]);
+  readonly loading = signal(false);
+  readonly skeletons = [1, 2, 3, 4, 5, 6, 7, 8];
 
   constructor() {
     effect(() => {
       this.tenants.version();
-      if (this.tenants.activeWorkspace()) this.load();
+      if (this.tenants.activeWorkspace()) untracked(() => this.load());
     });
   }
 
   load() {
+    if (this.loading()) return;
+    this.loading.set(true);
     this.api.get<AuditLog[]>('/audit-log').subscribe({
-      next: (logs) => this.logs.set(logs),
-      error: () => this.logs.set([])
+      next: (logs) => {
+        this.logs.set(logs);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.logs.set([]);
+        this.loading.set(false);
+      }
     });
   }
 }

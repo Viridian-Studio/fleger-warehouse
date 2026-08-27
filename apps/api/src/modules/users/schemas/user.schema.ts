@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type UserDocument = HydratedDocument<User>;
 
@@ -14,6 +14,9 @@ export class User {
   @Prop({ type: String, required: true })
   passwordHash!: string;
 
+  @Prop({ type: Boolean, default: false })
+  passwordMustChange!: boolean;
+
   @Prop({ type: String, required: true, enum: ['ACTIVE', 'DISABLED'], default: 'ACTIVE' })
   globalStatus!: string;
 
@@ -22,6 +25,9 @@ export class User {
 
   @Prop({ type: Boolean, default: false })
   superAdmin!: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'Employee', default: null })
+  employeeId?: Types.ObjectId | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

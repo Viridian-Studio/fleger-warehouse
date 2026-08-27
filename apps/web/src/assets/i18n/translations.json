@@ -1,0 +1,142 @@
+{
+  "hu": {
+    "common": {
+      "save": "Mentés",
+      "close": "Bezárás",
+      "cancel": "Mégse",
+      "delete": "Törlés",
+      "add": "Hozzáadás",
+      "update": "Frissítés",
+      "edit": "Szerkesztés",
+      "search": "Keresés",
+      "noRecords": "Nincsenek rekordok",
+      "loading": "Betöltés...",
+      "all": "Összes",
+      "create": "Létrehozás",
+      "confirmDelete": "Biztosan törölni szeretnéd?",
+      "yes": "Igen",
+      "no": "Nem"
+    },
+    "shell": {
+      "workspace": "Munkaterület",
+      "search": "Rekordok keresése",
+      "notifications": "Értesítések",
+      "noNotifications": "Nincsenek új értesítések",
+      "accountMenu": "Fiók menü",
+      "accountSettings": "Beállítások",
+      "logout": "Kijelentkezés",
+      "noWorkspace": "Nincs munkaterület",
+      "language": "Nyelv",
+      "hungarian": "Magyar",
+      "english": "English",
+      "nav": {
+        "dashboard": "Áttekintés",
+        "inventory": "Leltár",
+        "employees": "Dolgozók",
+        "vehicles": "Járművek",
+        "assignments": "Kiadások",
+        "team": "Csapat",
+        "roles": "Szerepkörök",
+        "auditLog": "Audit napló",
+        "settings": "Beállítások",
+        "billing": "Számlázás",
+        "platformAdmin": "Platform admin"
+      }
+    },
+    "login": {
+      "title": "Bejelentkezés",
+      "lead": "Leltár, flotta és csapatműveletek egy biztonságos, tenant-szeparált munkaterületen.",
+      "emailOrUsername": "Email vagy felhasználónév",
+      "password": "Jelszó",
+      "signIn": "Bejelentkezés",
+      "signingIn": "Bejelentkezés...",
+      "error": "Sikertelen bejelentkezés. Ellenőrizd az API-t, MongoDB-t, seed adatokat, emailt és jelszót.",
+      "demoUsers": "Demo felhasználók"
+    },
+    "dashboard": {
+      "title": "Áttekintés",
+      "subtitle": "Élő működési pillanatkép az aktív munkaterületről.",
+      "refresh": "Frissítés",
+      "inventoryItems": "Leltár tétel",
+      "lowStock": "Alacsony készlet",
+      "assignedAssets": "Kiadott eszköz",
+      "activeEmployees": "Aktív dolgozó",
+      "activeVehicles": "Aktív jármű",
+      "assignedVehicles": "Kiadott jármű",
+      "warehouseReadiness": "Raktárkészültség",
+      "warehouseReadinessText": "% a nyilvántartott készlet jelenleg elérhető.",
+      "fleetUtilization": "Flottakihasználtság",
+      "fleetUtilizationText": "% az aktív járművekből ki van adva."
+    }
+  },
+  "en": {
+    "common": {
+      "save": "Save",
+      "close": "Close",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "add": "Add",
+      "update": "Update",
+      "edit": "Edit",
+      "search": "Search",
+      "noRecords": "No records",
+      "loading": "Loading...",
+      "all": "All",
+      "create": "Create",
+      "confirmDelete": "Are you sure you want to delete?",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "shell": {
+      "workspace": "Workspace",
+      "search": "Search records",
+      "notifications": "Notifications",
+      "noNotifications": "No new notifications",
+      "accountMenu": "Account menu",
+      "accountSettings": "Settings",
+      "logout": "Logout",
+      "noWorkspace": "No workspace",
+      "language": "Language",
+      "hungarian": "Magyar",
+      "english": "English",
+      "nav": {
+        "dashboard": "Dashboard",
+        "inventory": "Inventory",
+        "employees": "Employees",
+        "vehicles": "Vehicles",
+        "assignments": "Assignments",
+        "team": "Team",
+        "roles": "Roles",
+        "auditLog": "Audit Logs",
+        "settings": "Settings",
+        "billing": "Billing",
+        "platformAdmin": "Platform Admin"
+      }
+    },
+    "login": {
+      "title": "Sign in",
+      "lead": "Inventory, fleet and team operations in one tenant-safe workspace.",
+      "emailOrUsername": "Email or username",
+      "password": "Password",
+      "signIn": "Sign in",
+      "signingIn": "Signing in...",
+      "error": "Login failed. Check API, MongoDB, seed data, email and password.",
+      "demoUsers": "Demo users"
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "subtitle": "Live operating snapshot for the active workspace.",
+      "refresh": "Refresh",
+      "inventoryItems": "Inventory items",
+      "lowStock": "Low stock",
+      "assignedAssets": "Assigned assets",
+      "activeEmployees": "Active employees",
+      "activeVehicles": "Active vehicles",
+      "assignedVehicles": "Assigned vehicles",
+      "warehouseReadiness": "Warehouse readiness",
+      "warehouseReadinessText": "% of tracked stock is currently available.",
+      "fleetUtilization": "Fleet utilization",
+      "fleetUtilizationText": "% of active vehicles are assigned."
+    }
+  }
+}

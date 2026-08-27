@@ -24,6 +24,8 @@ import { UsersModule } from './modules/users/users.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { HealthModule } from './modules/health/health.module';
 import { ApplicationDetailsModule } from './modules/application-details/application-details.module';
+import { SearchModule } from './modules/search/search.module';
+import { TenantGuardModule } from './common/tenant/tenant-guard.module';
 
 @Module({
   imports: [
@@ -53,7 +55,9 @@ import { ApplicationDetailsModule } from './modules/application-details/applicat
     PlatformAdminModule,
     NotificationsModule,
     HealthModule,
-    ApplicationDetailsModule
+    ApplicationDetailsModule,
+    SearchModule,
+    TenantGuardModule
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

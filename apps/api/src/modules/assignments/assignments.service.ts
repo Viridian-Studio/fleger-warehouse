@@ -48,14 +48,13 @@ export class AssignmentsService {
       status: 'ACTIVE'
     });
 
-    await this.notifications.create({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      type: 'inventory.assigned',
-      title: 'Inventory assigned',
-      message: `${dto.quantity} × ${item.name} assigned to ${dto.targetType.toLowerCase()}`,
-      link: '/assignments'
-    });
+    await this.notifications.broadcastToTenant(
+      ctx,
+      'inventory.assigned',
+      'Inventory assigned',
+      `${dto.quantity} × ${item.name} assigned to ${dto.targetType.toLowerCase()}`,
+      '/assignments'
+    );
 
     return assignment;
   }
@@ -74,14 +73,13 @@ export class AssignmentsService {
       vehicleId: assignment.targetType === 'VEHICLE' ? assignment.targetId : undefined
     });
 
-    await this.notifications.create({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      type: 'inventory.returned',
-      title: 'Inventory returned',
-      message: `${assignment.quantity} × item returned`,
-      link: '/assignments'
-    });
+    await this.notifications.broadcastToTenant(
+      ctx,
+      'inventory.returned',
+      'Inventory returned',
+      `${assignment.quantity} × item returned`,
+      '/assignments'
+    );
 
     return assignment;
   }
@@ -111,14 +109,13 @@ export class AssignmentsService {
     });
 
     await this.vehicles.markAssigned(ctx, dto.vehicleId);
-    await this.notifications.create({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      type: 'vehicle.assigned',
-      title: 'Vehicle assigned',
-      message: `${vehicle.licensePlate} assigned to ${employee.firstName} ${employee.lastName}`,
-      link: '/assignments'
-    });
+    await this.notifications.broadcastToTenant(
+      ctx,
+      'vehicle.assigned',
+      'Vehicle assigned',
+      `${vehicle.licensePlate} assigned to ${employee.firstName} ${employee.lastName}`,
+      '/assignments'
+    );
     return assignment;
   }
 
@@ -140,14 +137,13 @@ export class AssignmentsService {
     if (!assignment) throw new NotFoundException('Active vehicle assignment not found');
 
     await this.vehicles.markAvailable(ctx, assignment.vehicleId, dto.mileageAtReturn);
-    await this.notifications.create({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      type: 'vehicle.returned',
-      title: 'Vehicle returned',
-      message: `Vehicle assignment returned`,
-      link: '/assignments'
-    });
+    await this.notifications.broadcastToTenant(
+      ctx,
+      'vehicle.returned',
+      'Vehicle returned',
+      `Vehicle assignment returned`,
+      '/assignments'
+    );
     return assignment;
   }
 }

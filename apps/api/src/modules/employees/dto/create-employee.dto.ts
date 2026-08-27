@@ -1,8 +1,9 @@
 import { IsBoolean, IsEmail, IsOptional, IsString } from 'class-validator';
 
 export class CreateEmployeeDto {
+  @IsOptional()
   @IsString()
-  employeeNumber!: string;
+  employeeNumber?: string;
 
   @IsString()
   firstName!: string;

@@ -1,10 +1,15 @@
 import { DatePipe } from '@angular/common';
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api/api.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
-import { IconDirective } from '../../shared/ui/icon.directive';
+import { IconDirective, AppIconName } from '../../shared/ui/icon.directive';
+import { TooltipDirective } from '../../shared/ui/tooltip.directive';
 import { ToastService } from '../../shared/ui/toast.service';
+import { ConfirmService } from '../../shared/ui/confirm.service';
+import { ModalComponent } from '../../shared/ui/modal.component';
+import { EmptyStateComponent } from '../../shared/ui/feedback.component';
+import { printLabel } from '../../shared/ui/print-label';
 
 interface InventoryItem {
   _id: string;
@@ -53,29 +58,56 @@ interface Vehicle {
   model: string;
 }
 
+type LoadState = 'loading' | 'ready' | 'error';
+
 @Component({
   selector: 'app-inventory',
   standalone: true,
-  imports: [DatePipe, IconDirective, ReactiveFormsModule],
+  imports: [DatePipe, IconDirective, TooltipDirective, ReactiveFormsModule, ModalComponent, EmptyStateComponent],
   template: `
     <section class="page">
-      <div class="title-row">
+      <div class="page-header">
         <div class="page-title">
           <h1>Inventory</h1>
-          <p>{{ items().length }} items, {{ lowStockCount() }} low-stock records.</p>
+          <p>{{ items().length }} items · {{ lowStockCount() }} low-stock records · {{ availableUnits() }} available units</p>
         </div>
-        <button class="primary-button" (click)="toggleCreate()"><span [appIcon]="showCreate() ? 'X' : 'Plus'"></span>{{ showCreate() ? 'Close' : 'Add item' }}</button>
+        <div class="page-actions">
+          <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="load()" appTooltip="Refresh">
+            @if (loading()) { <span class="spinner" aria-hidden="true"></span> } @else { <span appIcon="RefreshCw" [size]="16"></span> }
+            Refresh
+          </button>
+          <button class="btn btn--ghost" type="button" (click)="openCategories()" appTooltip="Manage categories">
+            <span appIcon="FolderTree" [size]="16"></span>
+            Categories
+          </button>
+          <button class="btn btn--primary" type="button" (click)="openCreate()">
+            <span appIcon="Plus" [size]="16"></span>Add item
+          </button>
+        </div>
       </div>
 
       <div class="metrics">
-        <article class="data-card"><span appIcon="Boxes"></span><div><small>Total items</small><strong>{{ items().length }}</strong></div></article>
-        <article class="data-card"><span appIcon="CircleCheck"></span><div><small>Available units</small><strong>{{ availableUnits() }}</strong></div></article>
-        <article class="data-card"><span appIcon="ClipboardCheck"></span><div><small>Assigned units</small><strong>{{ assignedUnits() }}</strong></div></article>
+        <article class="mini-metric">
+          <span class="mini-icon" appIcon="Boxes" [size]="18"></span>
+          <div><small>Total items</small><strong>{{ items().length }}</strong></div>
+        </article>
+        <article class="mini-metric">
+          <span class="mini-icon good" appIcon="CircleCheck" [size]="18"></span>
+          <div><small>Available units</small><strong>{{ availableUnits() }}</strong></div>
+        </article>
+        <article class="mini-metric">
+          <span class="mini-icon info" appIcon="ClipboardCheck" [size]="18"></span>
+          <div><small>Assigned units</small><strong>{{ assignedUnits() }}</strong></div>
+        </article>
       </div>
 
-      <div class="filter-row">
-        <label class="field">
-          <span>Category filter</span>
+      <div class="filter-bar">
+        <div class="input-affix search-field">
+          <span class="affix-icon" appIcon="Search" [size]="16"></span>
+          <input type="text" [value]="search()" (input)="search.set($any($event.target).value)" placeholder="Search inventory…" />
+        </div>
+        <label class="field filter-field">
+          <span class="field-label">Category</span>
           <select [value]="categoryFilter()" (change)="categoryFilter.set($any($event.target).value)">
             <option value="">All categories</option>
             @for (category of categories(); track category._id) {
@@ -85,132 +117,186 @@ interface Vehicle {
         </label>
       </div>
 
-      @if (showCreate()) {
-        <form class="toolbar-card form" [formGroup]="createForm" (ngSubmit)="create()">
-          <label class="field"><span>Name</span><input formControlName="name" /></label>
-          <div class="auto-number">
-            <span appIcon="KeyRound"></span>
-            <div>
-              <strong>Auto number</strong>
-              <small>Generated when the item is saved.</small>
-            </div>
-          </div>
-          <label class="field"><span>Type</span><select formControlName="type"><option value="QUANTITY">Quantity</option><option value="ASSET">Asset</option></select></label>
-          <label class="field"><span>Quantity</span><input type="number" min="1" formControlName="quantity" /></label>
-          <label class="field"><span>Unit</span><input formControlName="unit" /></label>
-          <label class="field"><span>Location</span><input formControlName="location" /></label>
-          <label class="field"><span>Category</span>
-            <select formControlName="categoryId">
-              <option value="">No category</option>
-              @for (category of categories(); track category._id) {
-                <option [value]="category._id">{{ category.name }}</option>
-              }
-            </select>
-          </label>
-          <label class="field"><span>Low stock threshold</span><input type="number" min="0" formControlName="lowStockThreshold" /></label>
-          <label class="field"><span>Description</span><textarea formControlName="description" rows="1"></textarea></label>
-          <label class="field"><span>Serial number</span><input formControlName="serialNumber" /></label>
-          <label class="field"><span>Notes</span><textarea formControlName="notes" rows="1"></textarea></label>
-          <button class="primary-button" type="submit" [disabled]="createForm.invalid"><span appIcon="Save"></span>Save item</button>
-        </form>
-      }
-
       <div class="table-shell">
-        <div class="table-title"><h2>Stock list</h2><span class="status-pill">{{ items().length }} records</span></div>
-        <div class="row head"><span>Name</span><span>Number</span><span>Category</span><span>Type</span><span>Available</span><span>Status</span><span></span></div>
-        @if (items().length === 0) {
-          <div class="empty-state">No inventory items yet.</div>
-        }
-        @for (item of items(); track item._id) {
-          <div class="row" [class.selected]="selected()?._id === item._id" (click)="select(item)">
-            <span>{{ item.name }}</span>
-            <span>{{ item.inventoryNumber }}</span>
-            <span>{{ categoryName(item.categoryId) }}</span>
-            <span>{{ item.type }}</span>
-            <span>{{ item.availableQuantity }} / {{ item.quantity }}</span>
-            <span class="status-pill" [class.good]="item.status === 'AVAILABLE'" [class.warn]="item.availableQuantity === 0">{{ item.status }}</span>
-            <button class="ghost-button" type="button" [disabled]="item.availableQuantity === 0" (click)="startAssign(item); $event.stopPropagation()"><span appIcon="Send"></span>Assign</button>
-          </div>
-        }
-      </div>
-
-      @if (selected()) {
-        <aside class="preview data-card">
-          <div class="title-row"><h2>{{ selected()?.name }}</h2><button class="ghost-button" (click)="selected.set(null)">Close</button></div>
-          <dl>
-            <dt>Inventory number</dt><dd>{{ selected()?.inventoryNumber }}</dd>
-            <dt>Type</dt><dd>{{ selected()?.type }}</dd>
-            <dt>Category</dt><dd>{{ categoryName(selected()?.categoryId) }}</dd>
-            <dt>Available</dt><dd>{{ selected()?.availableQuantity }} / {{ selected()?.quantity }}</dd>
-            <dt>Status</dt><dd>{{ selected()?.status }}</dd>
-            <dt>Low stock threshold</dt><dd>{{ selected()?.lowStockThreshold ?? 5 }}</dd>
-            <dt>Location</dt><dd>{{ selected()?.location || '-' }}</dd>
-            <dt>Description</dt><dd>{{ selected()?.description || '-' }}</dd>
-            <dt>Serial number</dt><dd>{{ selected()?.serialNumber || '-' }}</dd>
-            <dt>Notes</dt><dd>{{ selected()?.notes || '-' }}</dd>
-          </dl>
-          <form class="compact-form" [formGroup]="editForm" (ngSubmit)="update(selected()!._id)">
-            <label class="field"><span>Name</span><input formControlName="name" /></label>
-            <label class="field"><span>Type</span><select formControlName="type"><option value="QUANTITY">Quantity</option><option value="ASSET">Asset</option></select></label>
-            <label class="field"><span>Unit</span><input formControlName="unit" /></label>
-            <label class="field"><span>Location</span><input formControlName="location" /></label>
-            <label class="field"><span>Category</span>
-              <select formControlName="categoryId">
-                <option value="">No category</option>
-                @for (category of categories(); track category._id) {
-                  <option [value]="category._id">{{ category.name }}</option>
-                }
-              </select>
-            </label>
-            <label class="field"><span>Low stock threshold</span><input type="number" min="0" formControlName="lowStockThreshold" /></label>
-            <label class="field"><span>Status</span>
-              <select formControlName="status">
-                <option value="AVAILABLE">Available</option>
-                <option value="ASSIGNED">Assigned</option>
-                <option value="MAINTENANCE">Maintenance</option>
-                <option value="LOST">Lost</option>
-                <option value="SCRAPPED">Scrapped</option>
-              </select>
-            </label>
-            <label class="field"><span>Description</span><textarea formControlName="description" rows="1"></textarea></label>
-            <label class="field"><span>Serial number</span><input formControlName="serialNumber" /></label>
-            <label class="field"><span>Notes</span><textarea formControlName="notes" rows="1"></textarea></label>
-            <button class="primary-button" type="submit" [disabled]="editForm.invalid"><span appIcon="Save"></span>Update</button>
-          </form>
-
-          <div class="transactions">
-            <h3>History</h3>
-            @if (transactions().length === 0) {
-              <div class="empty-state">No transactions yet.</div>
-            }
-            @for (tx of transactions(); track tx._id) {
-              <div class="transaction-row">
-                <span class="transaction-type">{{ tx.type }}</span>
-                <span>{{ tx.previousQuantity }} → {{ tx.newQuantity }}</span>
-                <span class="transaction-meta">{{ tx.timestamp | date:'short' }}</span>
+        <div class="table-title">
+          <h2>Stock list</h2>
+          <span class="table-meta">{{ filteredItems().length }} of {{ items().length }} records</span>
+        </div>
+        <div class="table-scroll">
+          @if (state() === 'loading') {
+            <div class="skeleton-list">
+              @for (i of skeletons; track i) {
+                <div class="skeleton-row">
+                  <span class="skeleton skeleton--line" style="width: 28%"></span>
+                  <span class="skeleton skeleton--line" style="width: 18%"></span>
+                  <span class="skeleton skeleton--line" style="width: 14%"></span>
+                  <span class="skeleton skeleton--line" style="width: 12%"></span>
+                </div>
+              }
+            </div>
+          } @else if (state() === 'error') {
+            <div class="state-card is-error">
+              <span class="state-icon" appIcon="TriangleAlert" [size]="22"></span>
+              <h3>Couldn't load inventory</h3>
+              <p>Something went wrong while fetching the stock list. Please try again.</p>
+              <button class="btn btn--ghost" type="button" (click)="load()"><span appIcon="RefreshCw" [size]="16"></span>Try again</button>
+            </div>
+          } @else if (filteredItems().length === 0) {
+            <app-empty-state icon="Boxes" title="No inventory items yet" description="Add your first inventory item to start tracking warehouse stock.">
+              <button class="btn btn--primary" type="button" (click)="openCreate()"><span appIcon="Plus" [size]="16"></span>Add item</button>
+            </app-empty-state>
+          } @else {
+            <div class="row head">
+              <span>Name</span><span>Number</span><span>Category</span><span>Type</span><span>Available</span><span>Status</span><span></span>
+            </div>
+            @for (item of filteredItems(); track item._id) {
+              <div class="row" [class.selected]="selected()?._id === item._id" (click)="select(item)">
+                <span class="col-strong truncate">{{ item.name }}</span>
+                <span class="col-muted mono">{{ item.inventoryNumber }}</span>
+                <span class="col-muted truncate">{{ categoryName(item.categoryId) }}</span>
+                <span class="badge badge--muted">{{ item.type }}</span>
+                <span>{{ item.availableQuantity }} / {{ item.quantity }}</span>
+                <span class="badge" [class.badge--good]="item.status === 'AVAILABLE'" [class.badge--warn]="item.availableQuantity === 0 && item.status !== 'SCRAPPED'">{{ item.status }}</span>
+                <span class="row-actions" (click)="$event.stopPropagation()">
+                  <button class="btn--icon btn--subtle btn--sm" type="button" [disabled]="item.availableQuantity === 0" appTooltip="Assign" (click)="startAssign(item)">
+                    <span appIcon="Send" [size]="16"></span>
+                  </button>
+                  <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Edit" (click)="openEdit(item)">
+                    <span appIcon="Pencil" [size]="16"></span>
+                  </button>
+                </span>
               </div>
             }
-          </div>
+          }
+        </div>
+      </div>
 
-          <div class="actions">
-            <button class="danger-button" type="button" (click)="remove(selected()!._id)"><span appIcon="Trash2"></span>Delete</button>
+      <!-- Create modal -->
+      @if (showCreate()) {
+        <app-modal title="Add inventory item" description="Create a new stock or asset record." size="lg" (close)="closeCreate()">
+          <form class="modal-form" [formGroup]="createForm" (ngSubmit)="create()">
+            <div class="form-grid">
+              <label class="field"><span class="field-label">Name <span class="req">*</span></span><input formControlName="name" /></label>
+              <label class="field"><span class="field-label">Type</span>
+                <select formControlName="type"><option value="QUANTITY">Quantity</option><option value="ASSET">Asset</option></select>
+              </label>
+              <label class="field"><span class="field-label">Quantity <span class="req">*</span></span><input type="number" min="1" formControlName="quantity" /></label>
+              <label class="field"><span class="field-label">Unit</span><input formControlName="unit" /></label>
+              <label class="field"><span class="field-label">Location</span><input formControlName="location" /></label>
+              <label class="field"><span class="field-label">Category</span>
+                <select formControlName="categoryId">
+                  <option value="">No category</option>
+                  @for (category of categories(); track category._id) {
+                    <option [value]="category._id">{{ category.name }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field"><span class="field-label">Low stock threshold</span><input type="number" min="0" formControlName="lowStockThreshold" /></label>
+              <label class="field"><span class="field-label">Serial number</span><input formControlName="serialNumber" /></label>
+              <label class="field full"><span class="field-label">Description</span><textarea formControlName="description" rows="2"></textarea></label>
+              <label class="field full"><span class="field-label">Notes</span><textarea formControlName="notes" rows="2"></textarea></label>
+            </div>
+          </form>
+          <div slot="footer" class="modal-foot">
+            <button class="btn btn--ghost" type="button" (click)="closeCreate()">Cancel</button>
+            <button class="btn btn--primary" type="button" [class.btn--loading]="saving()" [disabled]="createForm.invalid || saving()" (click)="create()">
+              @if (saving()) { <span class="spinner"></span> } @else { <span appIcon="Save" [size]="16"></span> }
+              Save item
+            </button>
           </div>
-        </aside>
+        </app-modal>
       }
 
-      @if (assigning()) {
-        <form class="toolbar-card assign-panel" [formGroup]="assignForm" (ngSubmit)="assign()">
-          <div class="panel-head">
-            <h2>Assign {{ assigning()?.name }}</h2>
-            <button class="ghost-button" type="button" (click)="assigning.set(null)"><span appIcon="X"></span>Cancel</button>
+      <!-- Edit modal -->
+      @if (showEdit() && selected(); as item) {
+        <app-modal [title]="item.name" [description]="item.inventoryNumber" size="lg" (close)="closeEdit()">
+          <div class="detail-grid">
+            <dl>
+              <dt>Type</dt><dd>{{ item.type }}</dd>
+              <dt>Category</dt><dd>{{ categoryName(item.categoryId) }}</dd>
+              <dt>Available</dt><dd>{{ item.availableQuantity }} / {{ item.quantity }}</dd>
+              <dt>Status</dt><dd><span class="badge" [class.badge--good]="item.status === 'AVAILABLE'">{{ item.status }}</span></dd>
+              <dt>Low stock threshold</dt><dd>{{ item.lowStockThreshold ?? 5 }}</dd>
+              <dt>Location</dt><dd>{{ item.location || '-' }}</dd>
+              <dt>Serial number</dt><dd>{{ item.serialNumber || '-' }}</dd>
+              <dt>Description</dt><dd>{{ item.description || '-' }}</dd>
+              <dt>Notes</dt><dd>{{ item.notes || '-' }}</dd>
+            </dl>
+            <form class="modal-form" [formGroup]="editForm" (ngSubmit)="update(item._id)">
+              <div class="form-grid">
+                <label class="field"><span class="field-label">Name <span class="req">*</span></span><input formControlName="name" /></label>
+                <label class="field"><span class="field-label">Type</span><select formControlName="type"><option value="QUANTITY">Quantity</option><option value="ASSET">Asset</option></select></label>
+                <label class="field"><span class="field-label">Unit</span><input formControlName="unit" /></label>
+                <label class="field"><span class="field-label">Location</span><input formControlName="location" /></label>
+                <label class="field"><span class="field-label">Category</span>
+                  <select formControlName="categoryId">
+                    <option value="">No category</option>
+                    @for (category of categories(); track category._id) {
+                      <option [value]="category._id">{{ category.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field"><span class="field-label">Low stock threshold</span><input type="number" min="0" formControlName="lowStockThreshold" /></label>
+                <label class="field"><span class="field-label">Status</span>
+                  <select formControlName="status">
+                    <option value="AVAILABLE">Available</option>
+                    <option value="ASSIGNED">Assigned</option>
+                    <option value="MAINTENANCE">Maintenance</option>
+                    <option value="LOST">Lost</option>
+                    <option value="SCRAPPED">Scrapped</option>
+                  </select>
+                </label>
+                <label class="field"><span class="field-label">Serial number</span><input formControlName="serialNumber" /></label>
+                <label class="field full"><span class="field-label">Description</span><textarea formControlName="description" rows="2"></textarea></label>
+                <label class="field full"><span class="field-label">Notes</span><textarea formControlName="notes" rows="2"></textarea></label>
+              </div>
+            </form>
+
+            <div class="transactions">
+              <h3>History</h3>
+              @if (transactions().length === 0) {
+                <p class="muted">No transactions yet.</p>
+              } @else {
+                @for (tx of transactions(); track tx._id) {
+                  <div class="transaction-row">
+                    <span class="badge badge--brand">{{ tx.type }}</span>
+                    <span class="mono">{{ tx.previousQuantity }} → {{ tx.newQuantity }}</span>
+                    <span class="muted">{{ tx.timestamp | date: 'short' }}</span>
+                  </div>
+                }
+              }
+            </div>
           </div>
-          <div class="form">
-            <label class="field">
-              <span>Issue to</span>
+          <div slot="footer" class="modal-foot modal-foot--between">
+            <div class="cluster">
+              <button class="btn btn--danger" type="button" [class.btn--loading]="deleting()" (click)="remove(item._id)">
+                @if (deleting()) { <span class="spinner"></span> } @else { <span appIcon="Trash2" [size]="16"></span> }
+                Delete
+              </button>
+              <button class="btn btn--ghost" type="button" (click)="printItem(item)">
+                <span appIcon="Printer" [size]="16"></span>
+                Print label
+              </button>
+            </div>
+            <div class="cluster">
+              <button class="btn btn--ghost" type="button" (click)="closeEdit()">Cancel</button>
+              <button class="btn btn--primary" type="button" [class.btn--loading]="saving()" [disabled]="editForm.invalid || saving()" (click)="update(item._id)">
+                @if (saving()) { <span class="spinner"></span> } @else { <span appIcon="Save" [size]="16"></span> }
+                Update
+              </button>
+            </div>
+          </div>
+        </app-modal>
+      }
+
+      <!-- Assign modal -->
+      @if (assigning(); as item) {
+        <app-modal [title]="'Assign ' + item.name" [description]="item.inventoryNumber" size="sm" (close)="closeAssign()">
+          <form class="modal-form" [formGroup]="assignForm" (ngSubmit)="assign()">
+            <label class="field"><span class="field-label">Issue to</span>
               <select formControlName="targetType"><option value="EMPLOYEE">Employee</option><option value="VEHICLE">Vehicle</option></select>
             </label>
-            <label class="field">
-              <span>Target</span>
+            <label class="field"><span class="field-label">Target</span>
               <select formControlName="targetId">
                 <option value="">Select target</option>
                 @if (assignForm.controls.targetType.value === 'EMPLOYEE') {
@@ -224,81 +310,141 @@ interface Vehicle {
                 }
               </select>
             </label>
-            <label class="field">
-              <span>Quantity</span>
-              <input type="number" min="1" formControlName="quantity" />
-            </label>
-            <button class="secondary-button" type="submit" [disabled]="assignForm.invalid"><span appIcon="Send"></span>Assign</button>
+            <label class="field"><span class="field-label">Quantity</span><input type="number" min="1" formControlName="quantity" /></label>
+          </form>
+          <div slot="footer" class="modal-foot">
+            <button class="btn btn--ghost" type="button" (click)="closeAssign()">Cancel</button>
+            <button class="btn btn--secondary" type="button" [class.btn--loading]="saving()" [disabled]="assignForm.invalid || saving()" (click)="assign()">
+              @if (saving()) { <span class="spinner"></span> } @else { <span appIcon="Send" [size]="16"></span> }
+              Assign
+            </button>
           </div>
-        </form>
+        </app-modal>
+      }
+
+      @if (showCategories()) {
+        <app-modal title="Inventory categories" description="Create and manage categories for organizing stock." size="md" (close)="closeCategories()">
+          <div class="category-list">
+            @if (categories().length === 0) {
+              <p class="muted">No categories yet. Create one below.</p>
+            }
+            @for (category of categories(); track category._id) {
+              <div class="category-row">
+                @if (editingCategoryId() === category._id) {
+                  <input class="category-edit-input" [value]="editingCategoryName()" (input)="editingCategoryName.set($any($event.target).value)" />
+                  <div class="cluster">
+                    <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Save" (click)="saveCategoryEdit(category._id)">
+                      <span appIcon="Check" [size]="14"></span>
+                    </button>
+                    <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Cancel" (click)="cancelCategoryEdit()">
+                      <span appIcon="X" [size]="14"></span>
+                    </button>
+                  </div>
+                } @else {
+                  <span class="category-name">{{ category.name }}</span>
+                  @if (category.code) { <span class="badge badge--muted">{{ category.code }}</span> }
+                  <div class="cluster">
+                    <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Edit" (click)="startCategoryEdit(category)">
+                      <span appIcon="Pencil" [size]="14"></span>
+                    </button>
+                    <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Delete" (click)="deleteCategory(category)">
+                      <span appIcon="Trash2" [size]="14"></span>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+          <form class="category-add" [formGroup]="categoryForm" (ngSubmit)="createCategory()">
+            <input formControlName="name" placeholder="New category name…" />
+            <input formControlName="code" placeholder="Code (optional)" />
+            <button class="btn btn--primary btn--sm" type="submit" [class.btn--loading]="savingCategory()" [disabled]="categoryForm.invalid || savingCategory()">
+              @if (savingCategory()) { <span class="spinner"></span> } @else { <span appIcon="Plus" [size]="14"></span> }
+              Add
+            </button>
+          </form>
+        </app-modal>
       }
     </section>
   `,
-  styles: `
-    h1, h2 { margin: 0; font-size: 28px; }
-    h2 { font-size: 20px; }
-    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-    .metrics article { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; }
-    .metrics article > span { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: var(--brand); background: var(--brand-soft); }
-    .metrics small { color: var(--muted); display: block; }
-    .metrics strong { font-size: 28px; }
-    .filter-row { display: flex; gap: 12px; align-items: end; }
-    .filter-row select { min-height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: white; }
-    .form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 12px; align-items: end; }
-    .auto-number {
-      display: grid;
-      grid-template-columns: 36px 1fr;
-      gap: 10px;
-      align-items: center;
-      min-height: 64px;
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--brand-soft);
+  styles: [`
+    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+    .mini-metric {
+      display: flex; align-items: center; gap: var(--space-3);
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface); box-shadow: var(--shadow-sm);
+      padding: var(--space-4);
     }
-    .auto-number > span {
-      display: grid;
-      place-items: center;
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      color: var(--brand);
-      background: white;
+    .mini-icon {
+      display: grid; place-items: center; width: 36px; height: 36px;
+      border-radius: var(--radius-sm); background: var(--brand-soft); color: var(--brand-ink);
     }
-    .auto-number strong {
-      display: block;
-      font-size: 13px;
-    }
-    .auto-number small {
-      color: var(--muted);
-      line-height: 1.35;
-    }
-    .assign-panel { display: grid; gap: 14px; }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .row { display: grid; grid-template-columns: 1.4fr 1fr 1fr .8fr .8fr .8fr 90px; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; cursor: pointer; }
+    .mini-icon.good { background: var(--success-soft); color: var(--success); }
+    .mini-icon.info { background: var(--info-soft); color: var(--info); }
+    .mini-metric small { color: var(--muted); display: block; font-size: 13px; }
+    .mini-metric strong { font-size: 22px; font-weight: 700; color: var(--ink-strong); }
+
+    .filter-bar { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-field { flex: 1; min-width: 220px; }
+    .filter-field { min-width: 200px; }
+    .filter-field .field-label { display: block; }
+
+    .row { display: grid; grid-template-columns: 1.4fr 1fr 1fr .8fr .8fr .8fr 80px; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft); align-items: center; }
     .row:first-child { border-top: 0; }
+    .row:not(.head) { cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+    .row:not(.head):hover { background: var(--surface-hover); }
     .row.selected { background: var(--brand-soft); }
-    .head { color: var(--muted); background: #f4f6fa; font-size: 13px; font-weight: 700; }
-    dl { display: grid; grid-template-columns: 1fr 1.2fr; gap: 10px; margin: 16px 0 0; }
-    dt { color: var(--muted); }
-    dd { margin: 0; }
-    .compact-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; align-items: end; }
-    .compact-form button { grid-column: span 2; }
-    .actions { display: flex; gap: 10px; margin-top: 12px; }
-    .transactions { display: grid; gap: 10px; margin-top: 20px; }
-    .transactions h3 { font-size: 16px; margin: 0; }
-    .transaction-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
-    .transaction-type { font-weight: 600; color: var(--brand); }
-    .transaction-meta { color: var(--muted); font-size: 13px; }
-    @media (max-width: 900px) { .metrics, .form, .row, .compact-form { grid-template-columns: 1fr; } .compact-form button { grid-column: auto; } }
-    @media (max-width: 1100px) { .row { grid-template-columns: 1.2fr 1fr 1fr 1fr 80px; } .row span:nth-child(4), .row span:nth-child(6) { display: none; } .head { display: none; } }
-  `
+    .row.head { color: var(--muted); background: var(--surface-soft); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+    .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+    .skeleton-list { padding: 0; }
+
+    .modal-form { display: grid; gap: var(--space-4); }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+    .field.full { grid-column: 1 / -1; }
+
+    .detail-grid { display: grid; gap: var(--space-5); }
+    dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-4); background: var(--surface-soft); border-radius: var(--radius); }
+    dt { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    dd { margin: 0; font-size: 14px; }
+
+    .transactions { display: grid; gap: var(--space-2); }
+    .transactions h3 { font-size: 14px; }
+    .transaction-row {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--line); border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+    }
+    .transaction-row .muted { margin-left: auto; font-size: 12px; }
+
+    @media (max-width: 900px) {
+      .metrics { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .row { grid-template-columns: 1fr 1fr; font-size: 13px; }
+      .row span:nth-child(3), .row span:nth-child(4), .row span:nth-child(6) { display: none; }
+      .row.head { display: none; }
+      dl { grid-template-columns: 1fr; }
+    }
+    .category-list { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .category-row {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+    }
+    .category-name { font-weight: 600; flex: 1; }
+    .category-edit-input { flex: 1; }
+    .category-add { display: flex; gap: var(--space-2); align-items: center; }
+    .category-add input { flex: 1; }
+    .muted { color: var(--muted); font-size: 13px; }
+  `]
 })
 export class InventoryComponent {
   private readonly api = inject(ApiService);
   private readonly tenants = inject(TenantStore);
   private readonly fb = inject(FormBuilder);
   private readonly toasts = inject(ToastService);
+  private readonly confirm = inject(ConfirmService);
   readonly items = signal<InventoryItem[]>([]);
   readonly categories = signal<InventoryCategory[]>([]);
   readonly transactions = signal<InventoryTransaction[]>([]);
@@ -307,7 +453,22 @@ export class InventoryComponent {
   readonly selected = signal<InventoryItem | null>(null);
   readonly assigning = signal<InventoryItem | null>(null);
   readonly showCreate = signal(false);
+  readonly showEdit = signal(false);
+  readonly showCategories = signal(false);
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  readonly savingCategory = signal(false);
+  readonly deleting = signal(false);
+  readonly state = signal<LoadState>('loading');
   readonly categoryFilter = signal<string>('');
+  readonly search = signal('');
+  readonly editingCategoryId = signal<string | null>(null);
+  readonly editingCategoryName = signal('');
+  readonly skeletons = [1, 2, 3, 4, 5, 6];
+  readonly categoryForm = this.fb.nonNullable.group({
+    name: ['', Validators.required],
+    code: ['']
+  });
   readonly createForm = this.fb.nonNullable.group({
     name: ['', Validators.required],
     type: ['QUANTITY', Validators.required],
@@ -338,11 +499,22 @@ export class InventoryComponent {
     quantity: [1, [Validators.required, Validators.min(1)]]
   });
 
+  readonly filteredItems = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const items = this.items();
+    if (!q) return items;
+    return items.filter((item) =>
+      item.name.toLowerCase().includes(q) ||
+      item.inventoryNumber.toLowerCase().includes(q) ||
+      (item.serialNumber ?? '').toLowerCase().includes(q)
+    );
+  });
+
   constructor() {
     effect(() => {
       this.tenants.version();
       this.categoryFilter();
-      if (this.tenants.activeWorkspace()) this.load();
+      if (this.tenants.activeWorkspace()) untracked(() => this.load());
     });
 
     this.assignForm.controls.targetType.valueChanges.subscribe(() => {
@@ -351,11 +523,21 @@ export class InventoryComponent {
   }
 
   load() {
+    if (this.loading()) return;
+    this.loading.set(true);
+    this.state.set('loading');
     const categoryId = this.categoryFilter();
     const itemsUrl = categoryId ? `/inventory/items?categoryId=${categoryId}` : '/inventory/items';
     this.api.get<InventoryItem[]>(itemsUrl).subscribe({
-      next: (items) => this.items.set(items),
-      error: () => undefined
+      next: (items) => {
+        this.items.set(items);
+        this.loading.set(false);
+        this.state.set('ready');
+      },
+      error: () => {
+        this.loading.set(false);
+        this.state.set('error');
+      }
     });
     this.api.get<Employee[]>('/employees').subscribe({ next: (employees) => this.employees.set(employees) });
     this.api.get<Vehicle[]>('/vehicles').subscribe({ next: (vehicles) => this.vehicles.set(vehicles) });
@@ -367,24 +549,46 @@ export class InventoryComponent {
     return this.categories().find((category) => category._id === categoryId)?.name ?? '-';
   }
 
-  toggleCreate() {
-    this.showCreate.update((value) => !value);
+  openCreate() {
+    this.createForm.reset({ name: '', type: 'QUANTITY', quantity: 1, unit: 'db', location: '', categoryId: '', lowStockThreshold: 5, description: '', serialNumber: '', notes: '' });
+    this.showCreate.set(true);
+  }
+
+  closeCreate() {
+    this.showCreate.set(false);
   }
 
   create() {
-    if (this.createForm.invalid) return;
+    if (this.createForm.invalid || this.saving()) return;
+    this.saving.set(true);
     this.api.post<InventoryItem>('/inventory/items', this.createForm.getRawValue()).subscribe({
       next: () => {
-        this.createForm.reset({ name: '', type: 'QUANTITY', quantity: 1, unit: 'db', location: '', categoryId: '', lowStockThreshold: 5, description: '', serialNumber: '', notes: '' });
+        this.saving.set(false);
         this.showCreate.set(false);
         this.toasts.success('Inventory item saved.');
         this.load();
       },
-      error: () => this.toasts.error('Could not save inventory item.')
+      error: () => {
+        this.saving.set(false);
+        this.toasts.error('Could not save inventory item.');
+      }
     });
   }
 
-  select(item: InventoryItem) {
+  printItem(item: InventoryItem) {
+    printLabel({
+      number: item.inventoryNumber,
+      title: item.type === 'ASSET' ? 'Asset' : 'Inventory',
+      subtitle: item.name,
+      meta: [
+        { label: 'Category', value: item.categoryId ?? '-' },
+        { label: 'Type', value: item.type },
+        { label: 'Quantity', value: String(item.quantity) }
+      ]
+    });
+  }
+
+  openEdit(item: InventoryItem) {
     this.api.get<InventoryItem>(`/inventory/items/${item._id}`).subscribe({
       next: (fresh) => {
         this.selected.set(fresh);
@@ -404,32 +608,62 @@ export class InventoryComponent {
           status: fresh.status,
           notes: fresh.notes ?? ''
         });
+        this.showEdit.set(true);
       }
     });
   }
 
+  closeEdit() {
+    this.showEdit.set(false);
+    this.selected.set(null);
+    this.transactions.set([]);
+  }
+
+  select(item: InventoryItem) {
+    this.openEdit(item);
+  }
+
   update(id: string) {
-    if (this.editForm.invalid) return;
+    if (this.editForm.invalid || this.saving()) return;
+    this.saving.set(true);
     this.api.patch<InventoryItem>(`/inventory/items/${id}`, this.editForm.getRawValue()).subscribe({
       next: (item) => {
+        this.saving.set(false);
         this.selected.set(item);
         this.toasts.success('Inventory item updated.');
         this.load();
       },
-      error: () => this.toasts.error('Could not update inventory item.')
+      error: () => {
+        this.saving.set(false);
+        this.toasts.error('Could not update inventory item.');
+      }
     });
   }
 
-  remove(id: string) {
-    if (!window.confirm('Delete this inventory item?')) return;
+  async remove(id: string) {
+    const ok = await this.confirm.confirm({
+      title: 'Delete inventory item?',
+      message: 'This will permanently remove the item and its assignment history. This action cannot be undone.',
+      confirmLabel: 'Delete item',
+      danger: true,
+      icon: 'Trash2'
+    });
+    if (!ok) return;
+    this.deleting.set(true);
+    this.confirm.setLoading(true);
     this.api.delete<InventoryItem>(`/inventory/items/${id}`).subscribe({
       next: () => {
-        this.selected.set(null);
-        this.assigning.set(null);
+        this.deleting.set(false);
+        this.confirm.setLoading(false);
+        this.closeEdit();
         this.toasts.success('Inventory item deleted.');
         this.load();
       },
-      error: () => this.toasts.error('Could not delete inventory item.')
+      error: () => {
+        this.deleting.set(false);
+        this.confirm.setLoading(false);
+        this.toasts.error('Could not delete inventory item.');
+      }
     });
   }
 
@@ -438,16 +672,25 @@ export class InventoryComponent {
     this.assignForm.patchValue({ quantity: 1, targetType: 'EMPLOYEE', targetId: '' });
   }
 
+  closeAssign() {
+    this.assigning.set(null);
+  }
+
   assign() {
     const item = this.assigning();
-    if (!item || this.assignForm.invalid) return;
+    if (!item || this.assignForm.invalid || this.saving()) return;
+    this.saving.set(true);
     this.api.post('/assignments/inventory', { itemId: item._id, ...this.assignForm.getRawValue() }).subscribe({
       next: () => {
+        this.saving.set(false);
         this.assigning.set(null);
         this.toasts.success('Inventory assigned.');
         this.load();
       },
-      error: () => this.toasts.error('Inventory assignment failed.')
+      error: () => {
+        this.saving.set(false);
+        this.toasts.error('Inventory assignment failed.');
+      }
     });
   }
 
@@ -461,5 +704,79 @@ export class InventoryComponent {
 
   lowStockCount() {
     return this.items().filter((item) => item.type === 'QUANTITY' && item.availableQuantity <= (item.lowStockThreshold ?? 5)).length;
+  }
+
+  // --- Category management ---
+
+  openCategories() {
+    this.showCategories.set(true);
+  }
+
+  closeCategories() {
+    this.showCategories.set(false);
+    this.cancelCategoryEdit();
+    this.categoryForm.reset({ name: '', code: '' });
+  }
+
+  createCategory() {
+    if (this.categoryForm.invalid || this.savingCategory()) return;
+    this.savingCategory.set(true);
+    this.api.post<InventoryCategory>('/inventory-categories', this.categoryForm.getRawValue()).subscribe({
+      next: (category) => {
+        this.savingCategory.set(false);
+        this.categories.update((list) => [...list, category]);
+        this.categoryForm.reset({ name: '', code: '' });
+        this.toasts.success('Category created.');
+      },
+      error: () => {
+        this.savingCategory.set(false);
+        this.toasts.error('Could not create category.');
+      }
+    });
+  }
+
+  startCategoryEdit(category: InventoryCategory) {
+    this.editingCategoryId.set(category._id);
+    this.editingCategoryName.set(category.name);
+  }
+
+  cancelCategoryEdit() {
+    this.editingCategoryId.set(null);
+    this.editingCategoryName.set('');
+  }
+
+  saveCategoryEdit(id: string) {
+    const name = this.editingCategoryName().trim();
+    if (!name) return;
+    this.api.patch<InventoryCategory>(`/inventory-categories/${id}`, { name }).subscribe({
+      next: (updated) => {
+        this.categories.update((list) => list.map((c) => (c._id === id ? updated : c)));
+        this.cancelCategoryEdit();
+        this.toasts.success('Category updated.');
+      },
+      error: () => {
+        this.toasts.error('Could not update category.');
+      }
+    });
+  }
+
+  async deleteCategory(category: InventoryCategory) {
+    const confirmed = await this.confirm.confirm({
+      title: 'Delete category?',
+      message: `Are you sure you want to delete "${category.name}"? Items in this category will be uncategorized.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      icon: 'Trash2'
+    });
+    if (!confirmed) return;
+    this.api.delete(`/inventory-categories/${category._id}`).subscribe({
+      next: () => {
+        this.categories.update((list) => list.filter((c) => c._id !== category._id));
+        this.toasts.success('Category deleted.');
+      },
+      error: () => {
+        this.toasts.error('Could not delete category.');
+      }
+    });
   }
 }

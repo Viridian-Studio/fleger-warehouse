@@ -1,7 +1,11 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { ApiService } from '../../core/api/api.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
-import { IconDirective } from '../../shared/ui/icon.directive';
+import { IconDirective, AppIconName } from '../../shared/ui/icon.directive';
+import { TooltipDirective } from '../../shared/ui/tooltip.directive';
+import { MetricCardComponent } from '../../shared/ui/feedback.component';
+import { TranslatePipe } from '../../shared/pipes/translate.pipe';
 
 interface DashboardSummary {
   inventoryItems: number;
@@ -15,64 +19,111 @@ interface DashboardSummary {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [IconDirective],
+  imports: [IconDirective, TooltipDirective, MetricCardComponent, TranslatePipe],
   template: `
     <section class="page">
-      <div class="title-row">
+      <div class="page-header">
         <div class="page-title">
-          <h1>Dashboard</h1>
-          <p>Live operating snapshot for the active workspace.</p>
+          <h1>{{ 'dashboard.title' | translate }}</h1>
+          <p>{{ 'dashboard.subtitle' | translate }}</p>
         </div>
-        <button class="ghost-button" (click)="load()"><span appIcon="RefreshCw"></span>Refresh</button>
+        <div class="page-actions">
+          <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="load()" appTooltip="Refresh">
+            @if (loading()) {
+              <span class="spinner" aria-hidden="true"></span>
+            } @else {
+              <span appIcon="RefreshCw" [size]="16"></span>
+            }
+            {{ 'dashboard.refresh' | translate }}
+          </button>
+        </div>
       </div>
 
       <div class="metrics">
-        @for (metric of metricCards(); track metric.label) {
-          <article class="data-card" [class.warn]="metric.tone === 'warn'" [class.info]="metric.tone === 'info'">
-            <span class="metric-icon" [appIcon]="metric.icon"></span>
-            <div>
-              <span>{{ metric.label }}</span>
-              <strong>{{ metric.value }}</strong>
-            </div>
-          </article>
+        @for (metric of metricCards(); track metric.labelKey) {
+          <app-metric-card
+            [icon]="metric.icon"
+            [label]="metric.labelKey | translate"
+            [value]="metric.value"
+            [tone]="metric.tone"
+            [hint]="metric.hint"
+          />
         }
       </div>
 
       <div class="summary-grid">
-        <section class="data-card">
-          <h2>Warehouse readiness</h2>
-          <div class="progress-track"><span [style.width.%]="inventoryReadiness()"></span></div>
-          <p>{{ inventoryReadiness() }}% of tracked stock is currently available.</p>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>{{ 'dashboard.warehouseReadiness' | translate }}</h2>
+              <p>{{ inventoryReadiness() }}{{ 'dashboard.warehouseReadinessText' | translate }}</p>
+            </div>
+            <span class="badge badge--brand">{{ inventoryReadiness() }}%</span>
+          </div>
+          <div class="card-body">
+            <div class="progress-track"><span [style.width.%]="inventoryReadiness()"></span></div>
+            <div class="progress-legend">
+              <span><span class="legend-dot brand"></span>{{ 'dashboard.inventoryItems' | translate }}: {{ summary().inventoryItems }}</span>
+              <span><span class="legend-dot warn"></span>{{ 'dashboard.lowStock' | translate }}: {{ summary().lowStock }}</span>
+            </div>
+          </div>
         </section>
-        <section class="data-card">
-          <h2>Fleet utilization</h2>
-          <div class="progress-track blue"><span [style.width.%]="fleetUtilization()"></span></div>
-          <p>{{ fleetUtilization() }}% of active vehicles are assigned.</p>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>{{ 'dashboard.fleetUtilization' | translate }}</h2>
+              <p>{{ fleetUtilization() }}{{ 'dashboard.fleetUtilizationText' | translate }}</p>
+            </div>
+            <span class="badge badge--info">{{ fleetUtilization() }}%</span>
+          </div>
+          <div class="card-body">
+            <div class="progress-track blue"><span [style.width.%]="fleetUtilization()"></span></div>
+            <div class="progress-legend">
+              <span><span class="legend-dot info"></span>{{ 'dashboard.activeVehicles' | translate }}: {{ summary().activeVehicles }}</span>
+              <span><span class="legend-dot brand"></span>{{ 'dashboard.assignedVehicles' | translate }}: {{ summary().assignedVehicles }}</span>
+            </div>
+          </div>
         </section>
       </div>
     </section>
   `,
-  styles: `
-    h1, h2 { margin: 0; font-size: 28px; }
-    h2 { font-size: 18px; }
-    p { margin: 6px 0 0; color: var(--muted); }
-    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-    article { display: grid; grid-template-columns: 38px 1fr; gap: 10px; align-items: center; }
-    article.warn { background: var(--warn-soft); }
-    article.info { background: var(--brand-2-soft); }
-    .metric-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 8px; background: white; color: var(--brand); border: 1px solid var(--line); }
-    article span { color: var(--muted); font-size: 14px; }
-    article strong { display: block; font-size: 30px; }
-    .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .progress-track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
-    .progress-track span { display: block; height: 100%; background: var(--brand); border-radius: inherit; }
-    .progress-track.blue span { background: var(--brand-2); }
-    @media (max-width: 900px) { .metrics, .summary-grid { grid-template-columns: 1fr; } }
-  `
+  styles: [`
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-4);
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-4);
+    }
+    .progress-legend {
+      display: flex;
+      gap: var(--space-5);
+      margin-top: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .progress-legend span {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--muted);
+    }
+    .legend-dot {
+      width: 8px; height: 8px; border-radius: 999px;
+      background: var(--brand);
+    }
+    .legend-dot.warn { background: var(--warn); }
+    .legend-dot.info { background: var(--accent-600); }
+    @media (max-width: 980px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .metrics, .summary-grid { grid-template-columns: 1fr; } }
+  `]
 })
 export class DashboardComponent {
   private readonly api = inject(ApiService);
   private readonly tenants = inject(TenantStore);
+  private readonly i18n = inject(I18nService);
+  readonly loading = signal(false);
   readonly summary = signal<DashboardSummary>({
     inventoryItems: 0,
     lowStock: 0,
@@ -85,19 +136,55 @@ export class DashboardComponent {
   constructor() {
     effect(() => {
       this.tenants.version();
-      if (this.tenants.activeWorkspace()) this.load();
+      if (this.tenants.activeWorkspace()) untracked(() => this.load());
     });
   }
 
   metricCards() {
     const data = this.summary();
     return [
-      { label: 'Inventory items', value: data.inventoryItems, tone: 'neutral', icon: 'Package' as const },
-      { label: 'Low stock', value: data.lowStock, tone: data.lowStock > 0 ? 'warn' : 'neutral', icon: 'CircleAlert' as const },
-      { label: 'Assigned assets', value: data.assignedAssets, tone: 'info', icon: 'ClipboardCheck' as const },
-      { label: 'Active employees', value: data.activeEmployees, tone: 'neutral', icon: 'Users' as const },
-      { label: 'Active vehicles', value: data.activeVehicles, tone: 'neutral', icon: 'Truck' as const },
-      { label: 'Assigned vehicles', value: data.assignedVehicles, tone: 'info', icon: 'KeyRound' as const }
+      {
+        labelKey: 'dashboard.inventoryItems',
+        value: data.inventoryItems,
+        tone: 'neutral' as const,
+        icon: 'Package' as AppIconName,
+        hint: `${data.inventoryItems} tracked`
+      },
+      {
+        labelKey: 'dashboard.lowStock',
+        value: data.lowStock,
+        tone: (data.lowStock > 0 ? 'warn' : 'neutral') as 'warn' | 'neutral',
+        icon: 'TriangleAlert' as AppIconName,
+        hint: data.lowStock > 0 ? 'Needs attention' : 'Healthy'
+      },
+      {
+        labelKey: 'dashboard.assignedAssets',
+        value: data.assignedAssets,
+        tone: 'info' as const,
+        icon: 'ClipboardCheck' as AppIconName,
+        hint: 'Currently issued'
+      },
+      {
+        labelKey: 'dashboard.activeEmployees',
+        value: data.activeEmployees,
+        tone: 'neutral' as const,
+        icon: 'Users' as AppIconName,
+        hint: 'In workforce'
+      },
+      {
+        labelKey: 'dashboard.activeVehicles',
+        value: data.activeVehicles,
+        tone: 'neutral' as const,
+        icon: 'Truck' as AppIconName,
+        hint: 'In fleet'
+      },
+      {
+        labelKey: 'dashboard.assignedVehicles',
+        value: data.assignedVehicles,
+        tone: 'info' as const,
+        icon: 'KeyRound' as AppIconName,
+        hint: 'On the road'
+      }
     ];
   }
 
@@ -114,9 +201,14 @@ export class DashboardComponent {
   }
 
   load() {
+    if (this.loading()) return;
+    this.loading.set(true);
     this.api.get<DashboardSummary>('/dashboard').subscribe({
-      next: (summary) => this.summary.set(summary),
-      error: () => undefined
+      next: (summary) => {
+        this.summary.set(summary);
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false)
     });
   }
 }

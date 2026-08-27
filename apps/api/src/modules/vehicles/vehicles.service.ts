@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { TenantScopedRepository } from '../../common/tenant/tenant-scoped.repository';
+import { nextSequentialNumber } from '../../common/tenant/number-generator';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { Vehicle } from './schemas/vehicle.schema';
 
@@ -10,7 +11,7 @@ import { Vehicle } from './schemas/vehicle.schema';
 export class VehiclesService {
   private readonly repo: TenantScopedRepository<Vehicle>;
 
-  constructor(@InjectModel(Vehicle.name) vehicles: Model<Vehicle>) {
+  constructor(@InjectModel(Vehicle.name) private readonly vehicles: Model<Vehicle>) {
     this.repo = new TenantScopedRepository(vehicles);
   }
 
@@ -22,9 +23,11 @@ export class VehiclesService {
     return this.repo.findById(ctx, id);
   }
 
-  create(ctx: TenantContext, dto: CreateVehicleDto) {
+  async create(ctx: TenantContext, dto: CreateVehicleDto) {
+    const licensePlate = dto.licensePlate || await nextSequentialNumber(this.vehicles, ctx, 'licensePlate', 'VEH');
     return this.repo.create(ctx, {
       ...dto,
+      licensePlate,
       currentMileage: dto.currentMileage ?? 0,
       inspectionExpiry: dto.inspectionExpiry ? new Date(dto.inspectionExpiry) : undefined,
       insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,

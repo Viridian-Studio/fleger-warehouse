@@ -1,10 +1,12 @@
 import { DatePipe } from '@angular/common';
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api/api.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
 import { IconDirective } from '../../shared/ui/icon.directive';
+import { TooltipDirective } from '../../shared/ui/tooltip.directive';
 import { ToastService } from '../../shared/ui/toast.service';
+import { EmptyStateComponent } from '../../shared/ui/feedback.component';
 
 interface Assignment {
   _id: string;
@@ -55,25 +57,29 @@ interface Vehicle {
 @Component({
   selector: 'app-assignments',
   standalone: true,
-  imports: [DatePipe, IconDirective, ReactiveFormsModule],
+  imports: [DatePipe, IconDirective, TooltipDirective, ReactiveFormsModule, EmptyStateComponent],
   template: `
     <section class="page">
-      <div class="title-row">
+      <div class="page-header">
         <div class="page-title">
           <h1>Assignments</h1>
           <p>{{ activeAssignments() }} active issues across inventory and fleet.</p>
         </div>
-        <button class="ghost-button" (click)="loadAll()"><span appIcon="RefreshCw"></span>Refresh</button>
+        <div class="page-actions">
+          <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="loadAll()" appTooltip="Refresh">
+            @if (loading()) { <span class="spinner"></span> } @else { <span appIcon="RefreshCw" [size]="16"></span> }
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div class="workflow-grid">
-        <form class="toolbar-card issue-panel" [formGroup]="form" (ngSubmit)="createInventoryAssignment()">
+        <form class="card issue-panel" [formGroup]="form" (ngSubmit)="createInventoryAssignment()">
           <div class="panel-head">
-            <h2><span appIcon="PackageCheck"></span>Inventory issue</h2>
-            <span class="status-pill info">{{ availableItemCount() }} available</span>
+            <h2><span class="panel-icon brand" appIcon="PackageCheck" [size]="18"></span>Inventory issue</h2>
+            <span class="badge badge--info">{{ availableItemCount() }} available</span>
           </div>
-          <label class="field">
-            <span>Item</span>
+          <label class="field"><span class="field-label">Item</span>
             <select formControlName="itemId">
               <option value="">Select item</option>
               @for (item of availableItems(); track item._id) {
@@ -82,20 +88,12 @@ interface Vehicle {
             </select>
           </label>
           <div class="split">
-            <label class="field">
-              <span>Issue to</span>
-              <select formControlName="targetType">
-                <option value="EMPLOYEE">Employee</option>
-                <option value="VEHICLE">Vehicle</option>
-              </select>
+            <label class="field"><span class="field-label">Issue to</span>
+              <select formControlName="targetType"><option value="EMPLOYEE">Employee</option><option value="VEHICLE">Vehicle</option></select>
             </label>
-            <label class="field">
-              <span>Quantity</span>
-              <input type="number" min="1" formControlName="quantity" />
-            </label>
+            <label class="field"><span class="field-label">Quantity</span><input type="number" min="1" formControlName="quantity" /></label>
           </div>
-          <label class="field">
-            <span>Target</span>
+          <label class="field"><span class="field-label">Target</span>
             <select formControlName="targetId">
               <option value="">Select target</option>
               @if (form.controls.targetType.value === 'EMPLOYEE') {
@@ -109,16 +107,18 @@ interface Vehicle {
               }
             </select>
           </label>
-          <button class="primary-button" type="submit" [disabled]="form.invalid"><span appIcon="Send"></span>Issue inventory</button>
+          <button class="btn btn--primary" type="submit" [class.btn--loading]="savingInv()" [disabled]="form.invalid || savingInv()">
+            @if (savingInv()) { <span class="spinner"></span> } @else { <span appIcon="Send" [size]="16"></span> }
+            Issue inventory
+          </button>
         </form>
 
-        <form class="toolbar-card issue-panel" [formGroup]="vehicleForm" (ngSubmit)="createVehicleAssignment()">
+        <form class="card issue-panel" [formGroup]="vehicleForm" (ngSubmit)="createVehicleAssignment()">
           <div class="panel-head">
-            <h2><span appIcon="Truck"></span>Vehicle issue</h2>
-            <span class="status-pill good">{{ availableVehicleCount() }} ready</span>
+            <h2><span class="panel-icon info" appIcon="Truck" [size]="18"></span>Vehicle issue</h2>
+            <span class="badge badge--good">{{ availableVehicleCount() }} ready</span>
           </div>
-          <label class="field">
-            <span>Vehicle</span>
+          <label class="field"><span class="field-label">Vehicle</span>
             <select formControlName="vehicleId">
               <option value="">Select vehicle</option>
               @for (vehicle of availableVehicles(); track vehicle._id) {
@@ -126,8 +126,7 @@ interface Vehicle {
               }
             </select>
           </label>
-          <label class="field">
-            <span>Employee</span>
+          <label class="field"><span class="field-label">Employee</span>
             <select formControlName="employeeId">
               <option value="">Select employee</option>
               @for (employee of employees(); track employee._id) {
@@ -135,68 +134,106 @@ interface Vehicle {
               }
             </select>
           </label>
-          <label class="field">
-            <span>Mileage</span>
-            <input type="number" min="0" formControlName="mileageAtAssignment" />
-          </label>
-          <button class="secondary-button" type="submit" [disabled]="vehicleForm.invalid"><span appIcon="KeyRound"></span>Issue vehicle</button>
+          <label class="field"><span class="field-label">Mileage</span><input type="number" min="0" formControlName="mileageAtAssignment" /></label>
+          <button class="btn btn--secondary" type="submit" [class.btn--loading]="savingVeh()" [disabled]="vehicleForm.invalid || savingVeh()">
+            @if (savingVeh()) { <span class="spinner"></span> } @else { <span appIcon="KeyRound" [size]="16"></span> }
+            Issue vehicle
+          </button>
         </form>
       </div>
 
       <div class="table-shell">
-        <div class="table-title"><h2>Inventory history</h2><span class="status-pill">{{ assignments().length }} records</span></div>
-        <div class="row head"><span>Item</span><span>Target</span><span>Qty</span><span>Status</span><span>Assigned</span><span></span></div>
-        @if (!loading() && assignments().length === 0) {
-          <div class="empty-state">No inventory assignments yet.</div>
-        }
-        @for (assignment of assignments(); track assignment._id) {
-          <div class="row">
-            <span>{{ itemName(assignment.itemId) }}</span>
-            <span>{{ targetName(assignment.targetType, assignment.targetId) }}</span>
-            <span>{{ assignment.quantity }}</span>
-            <span class="status-pill" [class.good]="assignment.status === 'ACTIVE'">{{ assignment.status }}</span>
-            <span>{{ assignment.assignedAt | date: 'yyyy-MM-dd HH:mm' }}</span>
-            <button class="ghost-button" [disabled]="assignment.status !== 'ACTIVE'" (click)="returnAssignment(assignment._id)"><span appIcon="Undo2"></span>Return</button>
-          </div>
-        }
+        <div class="table-title"><h2>Inventory history</h2><span class="table-meta">{{ assignments().length }} records</span></div>
+        <div class="table-scroll">
+          @if (loading()) {
+            <div class="skeleton-list">
+              @for (i of skeletons; track i) {
+                <div class="skeleton-row">
+                  <span class="skeleton skeleton--line" style="width: 26%"></span>
+                  <span class="skeleton skeleton--line" style="width: 22%"></span>
+                  <span class="skeleton skeleton--line" style="width: 10%"></span>
+                  <span class="skeleton skeleton--line" style="width: 16%"></span>
+                </div>
+              }
+            </div>
+          } @else if (assignments().length === 0) {
+            <app-empty-state icon="ClipboardCheck" title="No inventory assignments yet" description="Issue inventory to employees or vehicles to see the history here."></app-empty-state>
+          } @else {
+            <div class="row head"><span>Item</span><span>Target</span><span>Qty</span><span>Status</span><span>Assigned</span><span></span></div>
+            @for (assignment of assignments(); track assignment._id) {
+              <div class="row">
+                <span class="col-strong truncate">{{ itemName(assignment.itemId) }}</span>
+                <span class="truncate">{{ targetName(assignment.targetType, assignment.targetId) }}</span>
+                <span class="col-muted">{{ assignment.quantity }}</span>
+                <span class="badge" [class.badge--good]="assignment.status === 'ACTIVE'" [class.badge--muted]="assignment.status !== 'ACTIVE'">{{ assignment.status }}</span>
+                <span class="col-muted">{{ assignment.assignedAt | date: 'yyyy-MM-dd HH:mm' }}</span>
+                <span class="row-actions">
+                  <button class="btn--icon btn--subtle btn--sm" type="button" [disabled]="assignment.status !== 'ACTIVE'" appTooltip="Return" (click)="returnAssignment(assignment._id)">
+                    <span appIcon="Undo2" [size]="16"></span>
+                  </button>
+                </span>
+              </div>
+            }
+          }
+        </div>
       </div>
 
       <div class="table-shell">
-        <div class="table-title"><h2>Vehicle history</h2><span class="status-pill">{{ vehicleAssignments().length }} records</span></div>
-        <div class="vehicle-row head"><span>Vehicle</span><span>Employee</span><span>Mileage</span><span>Status</span><span>Assigned</span><span></span></div>
-        @if (!loading() && vehicleAssignments().length === 0) {
-          <div class="empty-state">No vehicle assignments yet.</div>
-        }
-        @for (assignment of vehicleAssignments(); track assignment._id) {
-          <div class="vehicle-row">
-            <span>{{ vehicleName(assignment.vehicleId) }}</span>
-            <span>{{ employeeName(assignment.employeeId) }}</span>
-            <span>{{ assignment.mileageAtAssignment }}{{ assignment.mileageAtReturn ? ' -> ' + assignment.mileageAtReturn : '' }}</span>
-            <span class="status-pill" [class.good]="assignment.status === 'ACTIVE'">{{ assignment.status }}</span>
-            <span>{{ assignment.assignedAt | date: 'yyyy-MM-dd HH:mm' }}</span>
-            <button class="ghost-button" [disabled]="assignment.status !== 'ACTIVE'" (click)="returnVehicleAssignment(assignment._id)"><span appIcon="RotateCcw"></span>Return</button>
-          </div>
-        }
+        <div class="table-title"><h2>Vehicle history</h2><span class="table-meta">{{ vehicleAssignments().length }} records</span></div>
+        <div class="table-scroll">
+          @if (loading()) {
+            <div class="skeleton-list">
+              @for (i of skeletons; track i) {
+                <div class="skeleton-row">
+                  <span class="skeleton skeleton--line" style="width: 26%"></span>
+                  <span class="skeleton skeleton--line" style="width: 22%"></span>
+                  <span class="skeleton skeleton--line" style="width: 16%"></span>
+                </div>
+              }
+            </div>
+          } @else if (vehicleAssignments().length === 0) {
+            <app-empty-state icon="Truck" title="No vehicle assignments yet" description="Issue vehicles to employees to see the history here."></app-empty-state>
+          } @else {
+            <div class="vehicle-row head"><span>Vehicle</span><span>Employee</span><span>Mileage</span><span>Status</span><span>Assigned</span><span></span></div>
+            @for (assignment of vehicleAssignments(); track assignment._id) {
+              <div class="vehicle-row">
+                <span class="col-strong truncate">{{ vehicleName(assignment.vehicleId) }}</span>
+                <span class="truncate">{{ employeeName(assignment.employeeId) }}</span>
+                <span class="col-muted">{{ assignment.mileageAtAssignment.toLocaleString() }}{{ assignment.mileageAtReturn ? ' → ' + assignment.mileageAtReturn.toLocaleString() : '' }} km</span>
+                <span class="badge" [class.badge--good]="assignment.status === 'ACTIVE'" [class.badge--muted]="assignment.status !== 'ACTIVE'">{{ assignment.status }}</span>
+                <span class="col-muted">{{ assignment.assignedAt | date: 'yyyy-MM-dd HH:mm' }}</span>
+                <span class="row-actions">
+                  <button class="btn--icon btn--subtle btn--sm" type="button" [disabled]="assignment.status !== 'ACTIVE'" appTooltip="Return" (click)="returnVehicleAssignment(assignment._id)">
+                    <span appIcon="RotateCcw" [size]="16"></span>
+                  </button>
+                </span>
+              </div>
+            }
+          }
+        </div>
       </div>
     </section>
   `,
-  styles: `
-    h1, h2 { margin: 0; font-size: 28px; }
-    h2 { font-size: 18px; }
-    h2 span { vertical-align: -3px; margin-right: 8px; color: var(--brand); }
-    .workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-    .issue-panel { display: grid; gap: 14px; }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .split { display: grid; grid-template-columns: 1fr 120px; gap: 12px; }
-    .row { display: grid; grid-template-columns: 1fr 1.3fr .4fr .7fr .9fr 90px; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; }
-    .vehicle-row { display: grid; grid-template-columns: 1fr 1fr .8fr .7fr .9fr 90px; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; }
-    .row:first-child { border-top: 0; }
-    .vehicle-row:first-child { border-top: 0; }
-    .head { color: var(--muted); background: #f4f6fa; font-size: 13px; font-weight: 700; }
-    .row button, .vehicle-row button { min-height: 32px; }
-    button:disabled { opacity: .45; }
-    @media (max-width: 1000px) { .workflow-grid, .split, .row, .vehicle-row { grid-template-columns: 1fr; } }
-  `
+  styles: [`
+    .workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+    .issue-panel { display: grid; gap: var(--space-4); padding: var(--space-5); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .panel-head h2 { display: flex; align-items: center; gap: var(--space-2); font-size: 16px; }
+    .panel-icon { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-sm); }
+    .panel-icon.brand { background: var(--brand-soft); color: var(--brand-ink); }
+    .panel-icon.info { background: var(--info-soft); color: var(--info); }
+    .split { display: grid; grid-template-columns: 1fr 120px; gap: var(--space-3); }
+
+    .row { display: grid; grid-template-columns: 1fr 1.3fr .4fr .7fr .9fr 56px; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft); align-items: center; }
+    .vehicle-row { display: grid; grid-template-columns: 1fr 1fr .8fr .7fr .9fr 56px; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft); align-items: center; }
+    .row:first-child, .vehicle-row:first-child { border-top: 0; }
+    .row.head, .vehicle-row.head { color: var(--muted); background: var(--surface-soft); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+    .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+    @media (max-width: 1000px) {
+      .workflow-grid, .split, .row, .vehicle-row { grid-template-columns: 1fr; }
+    }
+  `]
 })
 export class AssignmentsComponent {
   private readonly api = inject(ApiService);
@@ -209,6 +246,9 @@ export class AssignmentsComponent {
   readonly employees = signal<Employee[]>([]);
   readonly vehicles = signal<Vehicle[]>([]);
   readonly loading = signal(false);
+  readonly savingInv = signal(false);
+  readonly savingVeh = signal(false);
+  readonly skeletons = [1, 2, 3, 4, 5];
   readonly form = this.fb.nonNullable.group({
     itemId: ['', Validators.required],
     targetType: ['EMPLOYEE', Validators.required],
@@ -224,7 +264,7 @@ export class AssignmentsComponent {
   constructor() {
     effect(() => {
       this.tenants.version();
-      if (this.tenants.activeWorkspace()) this.loadAll();
+      if (this.tenants.activeWorkspace()) untracked(() => this.loadAll());
     });
 
     this.form.controls.targetType.valueChanges.subscribe(() => {
@@ -238,6 +278,7 @@ export class AssignmentsComponent {
   }
 
   loadAll() {
+    if (this.loading()) return;
     this.load();
     this.api.get<InventoryItem[]>('/inventory/items').subscribe({ next: (items) => this.items.set(items) });
     this.api.get<Employee[]>('/employees').subscribe({ next: (employees) => this.employees.set(employees) });
@@ -263,14 +304,19 @@ export class AssignmentsComponent {
   }
 
   createInventoryAssignment() {
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.savingInv()) return;
+    this.savingInv.set(true);
     this.api.post('/assignments/inventory', this.form.getRawValue()).subscribe({
       next: () => {
+        this.savingInv.set(false);
         this.form.reset({ itemId: '', targetType: 'EMPLOYEE', targetId: '', quantity: 1 });
         this.toasts.success('Inventory issued.');
         this.loadAll();
       },
-      error: () => this.toasts.error('Inventory issue failed.')
+      error: () => {
+        this.savingInv.set(false);
+        this.toasts.error('Inventory issue failed.');
+      }
     });
   }
 
@@ -285,14 +331,19 @@ export class AssignmentsComponent {
   }
 
   createVehicleAssignment() {
-    if (this.vehicleForm.invalid) return;
+    if (this.vehicleForm.invalid || this.savingVeh()) return;
+    this.savingVeh.set(true);
     this.api.post('/assignments/vehicles', this.vehicleForm.getRawValue()).subscribe({
       next: () => {
+        this.savingVeh.set(false);
         this.vehicleForm.reset({ vehicleId: '', employeeId: '', mileageAtAssignment: 0 });
         this.toasts.success('Vehicle issued.');
         this.loadAll();
       },
-      error: () => this.toasts.error('Vehicle issue failed.')
+      error: () => {
+        this.savingVeh.set(false);
+        this.toasts.error('Vehicle issue failed.');
+      }
     });
   }
 

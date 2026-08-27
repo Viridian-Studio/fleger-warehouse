@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { Notification } from './schemas/notification.schema';
+import { TenantMembership } from '../tenants/schemas/membership.schema';
 
 export interface CreateNotificationInput {
   tenantId: string;
@@ -15,7 +16,10 @@ export interface CreateNotificationInput {
 
 @Injectable()
 export class NotificationsService {
-  constructor(@InjectModel(Notification.name) private readonly notifications: Model<Notification>) {}
+  constructor(
+    @InjectModel(Notification.name) private readonly notifications: Model<Notification>,
+    @InjectModel(TenantMembership.name) private readonly memberships: Model<TenantMembership>
+  ) {}
 
   list(ctx: TenantContext) {
     return this.notifications
@@ -40,6 +44,30 @@ export class NotificationsService {
 
   create(input: CreateNotificationInput) {
     return this.notifications.create(input);
+  }
+
+  /**
+   * Broadcast a notification to all active members of a tenant.
+   */
+  async broadcastToTenant(ctx: TenantContext, type: string, title: string, message: string, link?: string) {
+    const members = await this.memberships
+      .find({ tenantId: new Types.ObjectId(ctx.tenantId), status: 'ACTIVE' })
+      .select('userId')
+      .lean();
+
+    const docs = members.map((m) => ({
+      tenantId: ctx.tenantId,
+      userId: String(m.userId),
+      type,
+      title,
+      message,
+      link,
+      read: false
+    }));
+
+    if (docs.length > 0) {
+      await this.notifications.insertMany(docs);
+    }
   }
 
   async remove(ctx: TenantContext, id: string) {

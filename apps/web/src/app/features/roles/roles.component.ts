@@ -1,9 +1,13 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api/api.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
 import { IconDirective } from '../../shared/ui/icon.directive';
+import { TooltipDirective } from '../../shared/ui/tooltip.directive';
 import { ToastService } from '../../shared/ui/toast.service';
+import { ConfirmService } from '../../shared/ui/confirm.service';
+import { ModalComponent } from '../../shared/ui/modal.component';
+import { EmptyStateComponent } from '../../shared/ui/feedback.component';
 
 interface Role {
   _id: string;
@@ -75,275 +79,184 @@ const PERMISSION_ORDER = PERMISSION_GROUPS.flatMap((group) => group.permissions.
 @Component({
   selector: 'app-roles',
   standalone: true,
-  imports: [IconDirective, ReactiveFormsModule],
+  imports: [IconDirective, TooltipDirective, ReactiveFormsModule, ModalComponent, EmptyStateComponent],
   template: `
     <section class="page">
-      <div class="title-row">
+      <div class="page-header">
         <div class="page-title">
           <h1>Roles</h1>
           <p>Create any role and choose exactly which permissions it gets.</p>
         </div>
-        <button class="primary-button" type="button" (click)="startCreate()">
-          <span appIcon="Plus"></span>
-          Add role
-        </button>
+        <div class="page-actions">
+          <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="load()" appTooltip="Refresh">
+            @if (loading()) { <span class="spinner"></span> } @else { <span appIcon="RefreshCw" [size]="16"></span> }
+            Refresh
+          </button>
+          <button class="btn btn--primary" type="button" (click)="startCreate()">
+            <span appIcon="Plus" [size]="16"></span>Add role
+          </button>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <div class="table-title"><h2>Role list</h2><span class="table-meta">{{ roles().length }} records</span></div>
+        <div class="table-scroll">
+          @if (loading()) {
+            <div class="skeleton-list">
+              @for (i of skeletons; track i) {
+                <div class="skeleton-row">
+                  <span class="skeleton skeleton--line" style="width: 22%"></span>
+                  <span class="skeleton skeleton--line" style="width: 14%"></span>
+                  <span class="skeleton skeleton--line" style="width: 40%"></span>
+                </div>
+              }
+            </div>
+          } @else if (roles().length === 0) {
+            <app-empty-state icon="ShieldCheck" title="No roles yet" description="Create a custom role to control what your teammates can do.">
+              <button class="btn btn--primary" type="button" (click)="startCreate()"><span appIcon="Plus" [size]="16"></span>Add role</button>
+            </app-empty-state>
+          } @else {
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Type</th>
+                  <th>Permissions</th>
+                  <th style="text-align: right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (role of roles(); track role._id) {
+                  <tr>
+                    <td data-label="Role"><strong>{{ role.name }}</strong></td>
+                    <td data-label="Type">
+                      <span class="badge" [class.badge--info]="role.systemRole" [class.badge--muted]="!role.systemRole">
+                        <span class="dot"></span>{{ role.systemRole ? 'System' : 'Custom' }}
+                      </span>
+                    </td>
+                    <td data-label="Permissions">
+                      <div class="permission-chips">
+                        @for (permission of sortedPermissions(role.permissions); track permission) {
+                          <code>{{ permission }}</code>
+                        }
+                      </div>
+                    </td>
+                    <td data-label="Actions">
+                      <div class="row-actions">
+                        <button class="btn--icon btn--subtle btn--sm" type="button" appTooltip="Edit" (click)="edit(role)">
+                          <span appIcon="Pencil" [size]="16"></span>
+                        </button>
+                        <button class="btn--icon btn--subtle btn--sm" type="button" [disabled]="role.systemRole" appTooltip="Delete" (click)="remove(role)">
+                          <span appIcon="Trash2" [size]="16"></span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
       </div>
 
       @if (formOpen()) {
-        <form class="toolbar-card role-form" [formGroup]="form" (ngSubmit)="save()">
-          <div class="form-header">
-            <div>
-              <span class="eyebrow">{{ editing() ? 'Edit role' : 'New role' }}</span>
-              <h2>{{ editing()?.name || 'Custom role' }}</h2>
+        <app-modal [title]="editing() ? 'Edit role' : 'New role'" [description]="editing()?.name || 'Configure a custom role and its permissions.'" size="lg" (close)="cancelForm()">
+          <form class="role-form" [formGroup]="form" (ngSubmit)="save()">
+            <label class="field role-name">
+              <span class="field-label">Role name <span class="req">*</span></span>
+              <input placeholder="Example: Warehouse supervisor" formControlName="name" />
+            </label>
+
+            <div class="permission-toolbar">
+              <div>
+                <strong>Permissions</strong>
+                <span class="muted">{{ selectedPermissions().length }} selected</span>
+              </div>
+              <div class="permission-actions">
+                <button class="btn btn--ghost btn--sm" type="button" (click)="selectAll()"><span appIcon="CircleCheck" [size]="14"></span>Select all</button>
+                <button class="btn btn--subtle btn--sm" type="button" (click)="clearAll()">Clear</button>
+              </div>
             </div>
-            <button class="icon-button" type="button" title="Close" (click)="cancelForm()">
-              <span appIcon="X"></span>
-            </button>
-          </div>
 
-          <label class="field role-name">
-            <span>Role name</span>
-            <input placeholder="Example: Warehouse supervisor" formControlName="name" />
-          </label>
-
-          <div class="permission-toolbar">
-            <div>
-              <strong>Permissions</strong>
-              <span>{{ selectedPermissions().length }} selected</span>
+            <div class="permission-grid">
+              @for (group of permissionGroups; track group.name) {
+                <fieldset class="permission-group">
+                  <legend>{{ group.name }}</legend>
+                  @for (permission of group.permissions; track permission.value) {
+                    <label class="permission-option" [class.selected]="isPermissionSelected(permission.value)">
+                      <input type="checkbox" [checked]="isPermissionSelected(permission.value)" (change)="togglePermission(permission.value)" />
+                      <span class="permission-check"><span appIcon="Check" [size]="14"></span></span>
+                      <span class="permission-copy">
+                        <strong>{{ permission.label }}</strong>
+                        <small>{{ permission.description }}</small>
+                        <code>{{ permission.value }}</code>
+                      </span>
+                    </label>
+                  }
+                </fieldset>
+              }
             </div>
-            <div class="permission-actions">
-              <button class="ghost-button" type="button" (click)="selectAll()">
-                <span appIcon="CircleCheck"></span>
-                Select all
-              </button>
-              <button class="ghost-button" type="button" (click)="clearAll()">Clear</button>
-            </div>
-          </div>
-
-          <div class="permission-grid">
-            @for (group of permissionGroups; track group.name) {
-              <fieldset class="permission-group">
-                <legend>{{ group.name }}</legend>
-                @for (permission of group.permissions; track permission.value) {
-                  <label class="permission-option" [class.selected]="isPermissionSelected(permission.value)">
-                    <input
-                      type="checkbox"
-                      [checked]="isPermissionSelected(permission.value)"
-                      (change)="togglePermission(permission.value)"
-                    />
-                    <span class="permission-check"><span appIcon="CircleCheck" [size]="15"></span></span>
-                    <span class="permission-copy">
-                      <strong>{{ permission.label }}</strong>
-                      <small>{{ permission.description }}</small>
-                      <code>{{ permission.value }}</code>
-                    </span>
-                  </label>
-                }
-              </fieldset>
-            }
-          </div>
-
-          <div class="form-actions">
-            <button class="ghost-button" type="button" (click)="cancelForm()">Cancel</button>
-            <button class="primary-button" type="submit" [disabled]="form.invalid || selectedPermissions().length === 0">
-              <span appIcon="Save"></span>
+          </form>
+          <div slot="footer" class="modal-foot">
+            <button class="btn btn--ghost" type="button" (click)="cancelForm()">Cancel</button>
+            <button class="btn btn--primary" type="button" [class.btn--loading]="saving()" [disabled]="form.invalid || selectedPermissions().length === 0 || saving()" (click)="save()">
+              @if (saving()) { <span class="spinner"></span> } @else { <span appIcon="Save" [size]="16"></span> }
               Save role
             </button>
           </div>
-        </form>
+        </app-modal>
       }
-
-      <div class="table-shell">
-        <div class="table-title">
-          <h2>Role list</h2>
-          <span class="status-pill">{{ roles().length }} records</span>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Type</th>
-              <th>Permissions</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-        @for (role of roles(); track role._id) {
-            <tr>
-              <td data-label="Role">
-                <strong>{{ role.name }}</strong>
-              </td>
-              <td data-label="Type">
-                <span class="status-pill" [class.info]="role.systemRole">{{ role.systemRole ? 'System role' : 'Custom role' }}</span>
-              </td>
-              <td data-label="Permissions">
-                <div class="permission-chips">
-                  @for (permission of sortedPermissions(role.permissions); track permission) {
-                    <code>{{ permission }}</code>
-                  }
-                </div>
-              </td>
-              <td data-label="Actions">
-                <button class="ghost-button" type="button" (click)="edit(role)">
-                  <span appIcon="Settings"></span>
-                  Edit
-                </button>
-                <button class="danger-button" type="button" [disabled]="role.systemRole" (click)="remove(role)">
-                  <span appIcon="Trash2"></span>
-                  Delete
-                </button>
-              </td>
-            </tr>
-        }
-          </tbody>
-        </table>
-        @if (!roles().length) {
-          <div class="empty-state">No roles yet.</div>
-        }
-      </div>
     </section>
   `,
-  styles: `
-    h1 { margin: 0; font-size: 28px; }
-    h2 { margin: 0; font-size: 20px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 13px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
-    tr:last-child td { border-bottom: 0; }
-    .role-form { display: grid; gap: 16px; }
-    .form-header,
-    .permission-toolbar,
-    .form-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .eyebrow {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0;
-      margin-bottom: 4px;
-    }
-    .role-name { max-width: 520px; }
+  styles: [`
+    .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+    .role-form { display: grid; gap: var(--space-4); }
+    .role-name { max-width: 420px; }
     .permission-toolbar {
-      padding-top: 4px;
+      display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+      padding-top: var(--space-3);
       border-top: 1px solid var(--line);
     }
-    .permission-toolbar strong {
-      display: block;
-      margin-bottom: 3px;
-    }
-    .permission-toolbar span {
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .permission-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .permission-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-    }
+    .permission-toolbar strong { display: block; }
+    .permission-toolbar .muted { font-size: 13px; }
+    .permission-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+    .permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
     .permission-group {
-      display: grid;
-      gap: 8px;
-      min-width: 0;
-      margin: 0;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-soft);
+      display: grid; gap: var(--space-2); min-width: 0; margin: 0;
+      padding: var(--space-3);
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface-soft);
     }
-    legend {
-      padding: 0 6px;
-      color: var(--ink);
-      font-weight: 800;
-    }
+    legend { padding: 0 6px; color: var(--ink-strong); font-weight: 600; font-size: 13px; }
     .permission-option {
-      display: grid;
-      grid-template-columns: 20px 1fr;
-      gap: 10px;
-      align-items: start;
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: white;
-      cursor: pointer;
-      transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+      display: grid; grid-template-columns: 20px 1fr; gap: var(--space-3); align-items: start;
+      padding: var(--space-3);
+      border: 1px solid var(--line); border-radius: var(--radius-sm);
+      background: var(--surface); cursor: pointer;
+      transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
     }
-    .permission-option:hover {
-      border-color: var(--line-strong);
-      box-shadow: 0 8px 18px rgba(15, 23, 42, .06);
-    }
-    .permission-option:focus-within {
-      border-color: var(--brand);
-      box-shadow: var(--focus);
-    }
-    .permission-option.selected {
-      border-color: #9cd3ca;
-      background: var(--brand-soft);
-    }
-    .permission-option input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
+    .permission-option:hover { border-color: var(--line-strong); }
+    .permission-option.selected { border-color: var(--brand); background: var(--brand-soft); }
+    .permission-option input { position: absolute; opacity: 0; pointer-events: none; }
     .permission-check {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      border: 1px solid var(--line-strong);
-      border-radius: 6px;
-      color: transparent;
-      background: white;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px;
+      border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+      color: transparent; background: var(--surface);
     }
-    .permission-option.selected .permission-check {
-      border-color: var(--brand);
-      background: var(--brand);
-      color: white;
-    }
-    .permission-copy {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
-    }
-    .permission-copy small {
-      color: var(--muted);
-      line-height: 1.35;
-    }
+    .permission-option.selected .permission-check { border-color: var(--brand); background: var(--brand); color: #fff; }
+    :root[data-theme="dark"] .permission-option.selected .permission-check { color: #04231f; }
+    .permission-copy { display: grid; gap: 3px; min-width: 0; }
+    .permission-copy strong { font-size: 13px; font-weight: 600; }
+    .permission-copy small { color: var(--muted); line-height: 1.4; font-size: 12px; }
     code {
-      width: fit-content;
-      border-radius: 6px;
-      background: #eef2f7;
-      color: #334155;
-      padding: 3px 6px;
-      font-size: 12px;
+      width: fit-content; border-radius: var(--radius-xs); background: var(--surface-soft);
+      color: var(--muted); padding: 2px 6px; font-size: 11px; font-family: var(--font-mono);
     }
-    .permission-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      max-width: 720px;
-    }
-    td[data-label="Actions"] {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .permission-chips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 560px; }
     @media (max-width: 980px) {
       .permission-grid { grid-template-columns: 1fr; }
-      .permission-toolbar,
-      .form-actions { align-items: stretch; flex-direction: column; }
+      .permission-toolbar { flex-direction: column; align-items: stretch; }
       .permission-actions { justify-content: flex-start; }
     }
     @media (max-width: 720px) {
@@ -351,29 +264,31 @@ const PERMISSION_ORDER = PERMISSION_GROUPS.flatMap((group) => group.permissions.
       thead { display: none; }
       tr { border-bottom: 1px solid var(--line); }
       tr:last-child { border-bottom: 0; }
-      td { border-bottom: 0; padding: 10px 14px; }
+      td { border-bottom: 0; padding: var(--space-2) var(--space-4); }
       td::before {
         content: attr(data-label);
         display: block;
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 800;
-        text-transform: uppercase;
-        margin-bottom: 5px;
+        color: var(--muted); font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;
       }
+      td[data-label="Actions"] .row-actions { justify-content: flex-start; }
     }
-  `
+  `]
 })
 export class RolesComponent {
   private readonly api = inject(ApiService);
   private readonly tenants = inject(TenantStore);
   private readonly fb = inject(FormBuilder);
   private readonly toasts = inject(ToastService);
+  private readonly confirm = inject(ConfirmService);
   readonly permissionGroups = PERMISSION_GROUPS;
   readonly roles = signal<Role[]>([]);
   readonly formOpen = signal(false);
   readonly editing = signal<Role | null>(null);
   readonly selectedPermissions = signal<string[]>(DEFAULT_PERMISSIONS);
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  readonly skeletons = [1, 2, 3, 4];
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required]
   });
@@ -381,14 +296,22 @@ export class RolesComponent {
   constructor() {
     effect(() => {
       this.tenants.version();
-      if (this.tenants.activeWorkspace()) this.load();
+      if (this.tenants.activeWorkspace()) untracked(() => this.load());
     });
   }
 
   load() {
+    if (this.loading()) return;
+    this.loading.set(true);
     this.api.get<Role[]>('/roles').subscribe({
-      next: (roles) => this.roles.set(roles),
-      error: () => this.roles.set([])
+      next: (roles) => {
+        this.roles.set(roles);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.roles.set([]);
+        this.loading.set(false);
+      }
     });
   }
 
@@ -446,7 +369,8 @@ export class RolesComponent {
   }
 
   save() {
-    if (this.form.invalid || !this.selectedPermissions().length) return;
+    if (this.form.invalid || !this.selectedPermissions().length || this.saving()) return;
+    this.saving.set(true);
     const value = this.form.getRawValue();
     const payload = {
       name: value.name,
@@ -459,23 +383,40 @@ export class RolesComponent {
 
     request.subscribe({
       next: () => {
+        this.saving.set(false);
         this.toasts.success(role ? 'Role updated.' : 'Role created.');
         this.cancelForm();
         this.load();
       },
-      error: () => this.toasts.error(role ? 'Could not update role.' : 'Could not create role.')
+      error: () => {
+        this.saving.set(false);
+        this.toasts.error(role ? 'Could not update role.' : 'Could not create role.');
+      }
     });
   }
 
-  remove(role: Role) {
-    if (role.systemRole || !window.confirm(`Delete role "${role.name}"?`)) return;
+  async remove(role: Role) {
+    if (role.systemRole) return;
+    const ok = await this.confirm.confirm({
+      title: `Delete role "${role.name}"?`,
+      message: 'Members assigned to this role will lose their permissions. This action cannot be undone.',
+      confirmLabel: 'Delete role',
+      danger: true,
+      icon: 'Trash2'
+    });
+    if (!ok) return;
+    this.confirm.setLoading(true);
     this.api.delete<Role>(`/roles/${role._id}`).subscribe({
       next: () => {
+        this.confirm.setLoading(false);
         this.toasts.success('Role deleted.');
         if (this.editing()?._id === role._id) this.cancelForm();
         this.load();
       },
-      error: () => this.toasts.error('Could not delete role.')
+      error: () => {
+        this.confirm.setLoading(false);
+        this.toasts.error('Could not delete role.');
+      }
     });
   }
 }

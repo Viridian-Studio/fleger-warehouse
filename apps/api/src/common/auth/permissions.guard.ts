@@ -16,6 +16,12 @@ export class PermissionsGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const tenant = request.tenantContext;
+
+    // Super admins bypass permission checks
+    if (tenant?.platformAdmin === true || request.user?.superAdmin === true || request.user?.platformAdmin === true) {
+      return true;
+    }
+
     const hasPermission = required.every((permission) => tenant?.permissions?.includes(permission));
 
     if (!hasPermission) {
