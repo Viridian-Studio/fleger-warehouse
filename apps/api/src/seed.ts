@@ -107,6 +107,7 @@ async function main() {
 
   const acmeAdmin = await User.create({ username: 'acme-admin', email: 'admin@acme.test', passwordHash, globalStatus: 'ACTIVE' });
   const demoAdmin = await User.create({ username: 'demo-admin', email: 'admin@demo.test', passwordHash, globalStatus: 'ACTIVE' });
+  const flegerAdmin = await User.create({ username: 'fleger-admin', email: 'jovanovicsp@gmail.com', passwordHash: flegerPasswordHash, globalStatus: 'ACTIVE' });
 
   await Membership.create([
     {

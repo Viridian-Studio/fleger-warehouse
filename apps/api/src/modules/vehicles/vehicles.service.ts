@@ -26,6 +26,8 @@ export class VehiclesService {
     return this.repo.create(ctx, {
       ...dto,
       currentMileage: dto.currentMileage ?? 0,
+      inspectionExpiry: dto.inspectionExpiry ? new Date(dto.inspectionExpiry) : undefined,
+      insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
       status: 'AVAILABLE',
       active: true
     } as Omit<Vehicle, 'tenantId'>);
@@ -48,5 +50,17 @@ export class VehiclesService {
       status: 'AVAILABLE',
       ...(currentMileage !== undefined ? { currentMileage } : {})
     });
+  }
+
+  due(ctx: TenantContext) {
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() + 30);
+    return this.repo.find(ctx, {
+      $or: [
+        { $expr: { $lte: ['$nextServiceMileage', '$currentMileage'] } },
+        { inspectionExpiry: { $lte: threshold } },
+        { insuranceExpiry: { $lte: threshold } }
+      ]
+    }).sort({ licensePlate: 1 });
   }
 }

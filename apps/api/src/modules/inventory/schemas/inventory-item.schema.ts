@@ -32,6 +32,9 @@ export class InventoryItem {
   @Prop({ type: Number, required: true, min: 0, default: 1 })
   availableQuantity!: number;
 
+  @Prop({ type: Number, default: 5 })
+  lowStockThreshold!: number;
+
   @Prop({ type: String, default: 'db' })
   unit!: string;
 

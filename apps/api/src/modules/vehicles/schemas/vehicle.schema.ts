@@ -32,6 +32,15 @@ export class Vehicle {
   @Prop({ type: Boolean, default: true })
   active!: boolean;
 
+  @Prop({ type: Number })
+  nextServiceMileage?: number;
+
+  @Prop({ type: Date })
+  inspectionExpiry?: Date;
+
+  @Prop({ type: Date })
+  insuranceExpiry?: Date;
+
   @Prop({ type: String })
   notes?: string;
 }

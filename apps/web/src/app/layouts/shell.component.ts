@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from "@angular/core";
+import { DatePipe } from "@angular/common";
+import { Component, computed, effect, inject, signal } from "@angular/core";
 import {
   Router,
   RouterLink,
@@ -6,15 +7,25 @@ import {
   RouterOutlet,
 } from "@angular/router";
 import { ApplicationDetailsStore } from "../core/application/application-details.store";
+import { ApiService } from "../core/api/api.service";
 import { AuthStore } from "../core/auth/auth.store";
 import { TenantStore } from "../core/tenant/tenant.store";
 import { IconDirective } from "../shared/ui/icon.directive";
 import { ToastOutletComponent } from "../shared/ui/toast-outlet.component";
 
+interface Notification {
+  _id: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
 @Component({
   selector: "app-shell",
   standalone: true,
   imports: [
+    DatePipe,
     IconDirective,
     RouterLink,
     RouterLinkActive,
@@ -76,9 +87,29 @@ import { ToastOutletComponent } from "../shared/ui/toast-outlet.component";
             <span>{{ activeSlug() || "No workspace" }}</span>
           </div>
           <div class="search"><input placeholder="Search records" /></div>
-          <button class="icon-button" title="Notifications">
-            <span appIcon="Bell"></span>
-          </button>
+          <div class="notifications">
+            <button class="icon-button" title="Notifications" (click)="toggleNotifications()">
+              <span appIcon="Bell"></span>
+              @if (unread() > 0) {
+                <span class="badge">{{ unread() }}</span>
+              }
+            </button>
+            @if (notificationsOpen()) {
+              <div class="notification-menu">
+                <div class="notification-head"><strong>Notifications</strong></div>
+                @if (notifications().length === 0) {
+                  <div class="empty">No new notifications</div>
+                }
+                @for (n of notifications(); track n._id) {
+                  <div class="notification-item" [class.unread]="!n.read" (click)="markRead(n._id)">
+                    <strong>{{ n.title }}</strong>
+                    <span>{{ n.message }}</span>
+                    <small>{{ n.createdAt | date:'short' }}</small>
+                  </div>
+                }
+              </div>
+            }
+          </div>
           <div class="account">
             <button
               class="user-menu"
@@ -326,6 +357,78 @@ import { ToastOutletComponent } from "../shared/ui/toast-outlet.component";
       font-weight: 800;
       text-align: left;
     }
+    .notifications {
+      position: relative;
+    }
+    .icon-button {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--panel-soft);
+      display: grid;
+      place-items: center;
+    }
+    .badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 9px;
+      background: var(--danger);
+      color: white;
+      font-size: 11px;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+      padding: 0 5px;
+    }
+    .notification-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      width: 320px;
+      max-height: 400px;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      padding: 10px;
+      box-shadow: var(--shadow);
+      z-index: 10;
+    }
+    .notification-head {
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .notification-item {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .notification-item.unread {
+      background: var(--brand-soft);
+    }
+    .notification-item strong {
+      font-size: 14px;
+    }
+    .notification-item span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .notification-item small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .notification-item:hover {
+      background: var(--panel-soft);
+    }
     .content {
       padding: 24px;
       max-width: 1440px;
@@ -371,10 +474,21 @@ import { ToastOutletComponent } from "../shared/ui/toast-outlet.component";
 export class ShellComponent {
   private readonly auth = inject(AuthStore);
   private readonly applicationDetailsStore = inject(ApplicationDetailsStore);
+  private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   readonly tenantStore = inject(TenantStore);
   readonly accountMenuOpen = signal(false);
+  readonly notificationsOpen = signal(false);
+  readonly notifications = signal<Notification[]>([]);
+  readonly unread = signal<number>(0);
   readonly applicationDetails = this.applicationDetailsStore.details;
+
+  constructor() {
+    effect(() => {
+      this.tenantStore.activeWorkspace();
+      this.loadNotifications();
+    });
+  }
   readonly activeSlug = computed(
     () => this.tenantStore.activeWorkspace()?.tenantSlug ?? "",
   );
@@ -413,6 +527,26 @@ export class ShellComponent {
 
   switchTenant(event: Event) {
     this.tenantStore.switch((event.target as HTMLSelectElement).value);
+  }
+
+  loadNotifications() {
+    if (!this.tenantStore.activeWorkspace()) return;
+    this.api.get<Notification[]>('/notifications').subscribe({
+      next: (n) => this.notifications.set(n)
+    });
+    this.api.get<number>('/notifications/unread').subscribe({
+      next: (count) => this.unread.set(count)
+    });
+  }
+
+  toggleNotifications() {
+    this.notificationsOpen.update((open) => !open);
+  }
+
+  markRead(id: string) {
+    this.api.patch<Notification>(`/notifications/${id}/read`, {}).subscribe({
+      next: () => this.loadNotifications()
+    });
   }
 
   toggleAccountMenu() {

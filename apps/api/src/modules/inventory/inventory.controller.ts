@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/auth/permissions.decorator';
@@ -7,6 +7,7 @@ import { TenantContext } from '../../common/tenant/tenant-context';
 import { TenantGuard } from '../../common/tenant/tenant.guard';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { AdjustInventoryItemDto } from './dto/adjust-inventory-item.dto';
+import { StockOperationDto } from './dto/stock-operation.dto';
 import { InventoryService } from './inventory.service';
 
 @ApiTags('inventory')
@@ -18,8 +19,8 @@ export class InventoryController {
 
   @RequirePermissions('inventory.read')
   @Get('items')
-  list(@Req() request: { tenantContext: TenantContext }) {
-    return this.inventory.list(request.tenantContext);
+  list(@Req() request: { tenantContext: TenantContext }, @Query('categoryId') categoryId?: string) {
+    return this.inventory.list(request.tenantContext, categoryId);
   }
 
   @RequirePermissions('inventory.create')
@@ -47,14 +48,32 @@ export class InventoryController {
   }
 
   @RequirePermissions('inventory.read')
+  @Get('low-stock')
+  lowStock(@Req() request: { tenantContext: TenantContext }) {
+    return this.inventory.lowStock(request.tenantContext);
+  }
+
+  @RequirePermissions('inventory.read')
   @Get('transactions')
-  transactions(@Req() request: { tenantContext: TenantContext }) {
-    return this.inventory.transactionsForTenant(request.tenantContext);
+  transactions(@Req() request: { tenantContext: TenantContext }, @Query('itemId') itemId?: string) {
+    return this.inventory.transactionsForTenant(request.tenantContext, itemId);
   }
 
   @RequirePermissions('inventory.update')
   @Post('items/:id/adjust')
   adjust(@Req() request: { tenantContext: TenantContext }, @Param('id') id: string, @Body() dto: AdjustInventoryItemDto) {
     return this.inventory.adjust(request.tenantContext, id, dto.quantity, dto.notes);
+  }
+
+  @RequirePermissions('inventory.update')
+  @Post('items/:id/stock-in')
+  stockIn(@Req() request: { tenantContext: TenantContext }, @Param('id') id: string, @Body() dto: StockOperationDto) {
+    return this.inventory.stockIn(request.tenantContext, id, dto.quantity, dto.notes);
+  }
+
+  @RequirePermissions('inventory.update')
+  @Post('items/:id/stock-out')
+  stockOut(@Req() request: { tenantContext: TenantContext }, @Param('id') id: string, @Body() dto: StockOperationDto) {
+    return this.inventory.stockOut(request.tenantContext, id, dto.quantity, dto.notes);
   }
 }

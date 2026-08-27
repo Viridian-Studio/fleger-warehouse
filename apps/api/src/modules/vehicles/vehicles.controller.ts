@@ -21,6 +21,12 @@ export class VehiclesController {
     return this.vehicles.list(request.tenantContext);
   }
 
+  @RequirePermissions('vehicle.read')
+  @Get('due')
+  due(@Req() request: { tenantContext: TenantContext }) {
+    return this.vehicles.due(request.tenantContext);
+  }
+
   @RequirePermissions('vehicle.create')
   @Post()
   create(@Req() request: { tenantContext: TenantContext }, @Body() dto: CreateVehicleDto) {

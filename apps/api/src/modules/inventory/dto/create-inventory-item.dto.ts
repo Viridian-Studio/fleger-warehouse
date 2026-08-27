@@ -1,5 +1,7 @@
 import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
+
+
 export class CreateInventoryItemDto {
   @IsString()
   name!: string;
@@ -34,6 +36,15 @@ export class CreateInventoryItemDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  lowStockThreshold?: number;
+
+  @IsOptional()
+  @IsIn(['AVAILABLE', 'ASSIGNED', 'MAINTENANCE', 'LOST', 'SCRAPPED'])
+  status?: 'AVAILABLE' | 'ASSIGNED' | 'MAINTENANCE' | 'LOST' | 'SCRAPPED';
 
   @IsOptional()
   @IsString()

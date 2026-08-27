@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { TenantScopedRepository } from '../../common/tenant/tenant-scoped.repository';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
@@ -13,13 +15,16 @@ export class InventoryService {
 
   constructor(
     @InjectModel(InventoryItem.name) private readonly items: Model<InventoryItem>,
-    @InjectModel(InventoryTransaction.name) private readonly transactions: Model<InventoryTransaction>
+    @InjectModel(InventoryTransaction.name) private readonly transactions: Model<InventoryTransaction>,
+    private readonly audit: AuditLogService,
+    private readonly notifications: NotificationsService
   ) {
     this.repo = new TenantScopedRepository(items);
   }
 
-  list(ctx: TenantContext) {
-    return this.repo.find(ctx).sort({ name: 1 });
+  list(ctx: TenantContext, categoryId?: string) {
+    const filter = categoryId ? { categoryId } : {};
+    return this.repo.find(ctx, filter).sort({ name: 1 });
   }
 
   detail(ctx: TenantContext, id: string) {
@@ -33,6 +38,7 @@ export class InventoryService {
           ...dto,
           inventoryNumber: dto.inventoryNumber || (await this.nextInventoryNumber(ctx)),
           availableQuantity: dto.quantity,
+          lowStockThreshold: dto.lowStockThreshold ?? 5,
           unit: dto.unit ?? 'db',
           status: 'AVAILABLE'
         } as Omit<InventoryItem, 'tenantId'>);
@@ -53,8 +59,41 @@ export class InventoryService {
     return this.repo.deleteById(ctx, id);
   }
 
-  transactionsForTenant(ctx: TenantContext) {
-    return this.transactions.find({ tenantId: ctx.tenantId }).sort({ timestamp: -1 }).limit(100);
+  transactionsForTenant(ctx: TenantContext, itemId?: string) {
+    const filter: Record<string, unknown> = { tenantId: ctx.tenantId };
+    if (itemId) filter.itemId = itemId;
+    return this.transactions.find(filter).sort({ timestamp: -1 }).limit(100);
+  }
+
+  lowStock(ctx: TenantContext) {
+    return this.repo.find(ctx, {
+      type: 'QUANTITY',
+      $expr: { $lte: ['$availableQuantity', '$lowStockThreshold'] }
+    }).sort({ name: 1 });
+  }
+
+  private isLowStock(item: InventoryItem) {
+    return item.type === 'QUANTITY' && item.availableQuantity <= item.lowStockThreshold;
+  }
+
+  private async raiseLowStockAlert(ctx: TenantContext, item: InventoryItem) {
+    if (!this.isLowStock(item)) return;
+    await this.audit.record({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      action: 'inventory.low_stock',
+      entityType: 'InventoryItem',
+      entityId: String((item as any)._id),
+      metadata: { availableQuantity: item.availableQuantity, lowStockThreshold: item.lowStockThreshold }
+    });
+    await this.notifications.create({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      type: 'inventory.low_stock',
+      title: 'Low stock alert',
+      message: `${item.name} is below the low stock threshold (${item.availableQuantity} / ${item.lowStockThreshold})`,
+      link: `/inventory`
+    });
   }
 
   async reserve(ctx: TenantContext, itemId: string, quantity: number, target: { employeeId?: string; vehicleId?: string }) {
@@ -80,6 +119,7 @@ export class InventoryService {
       ...target
     });
 
+    await this.raiseLowStockAlert(ctx, item);
     return item;
   }
 
@@ -111,6 +151,7 @@ export class InventoryService {
       notes
     });
 
+    await this.raiseLowStockAlert(ctx, item);
     return item;
   }
 
@@ -137,6 +178,68 @@ export class InventoryService {
       ...target
     });
 
+    await this.raiseLowStockAlert(ctx, item);
+    return item;
+  }
+
+  async stockIn(ctx: TenantContext, itemId: string, quantity: number, notes?: string) {
+    const item = await this.repo.findById(ctx, itemId);
+    if (!item) throw new NotFoundException('Inventory item not found');
+    if (item.type === 'ASSET' && item.quantity + quantity > 1) {
+      throw new BadRequestException('Asset quantity cannot exceed 1');
+    }
+
+    const previousQuantity = item.availableQuantity;
+    item.quantity += quantity;
+    item.availableQuantity += quantity;
+    item.status = 'AVAILABLE';
+    await item.save();
+
+    await this.transactions.create({
+      tenantId: ctx.tenantId,
+      itemId,
+      type: 'STOCK_IN',
+      quantity,
+      previousQuantity,
+      newQuantity: item.availableQuantity,
+      userId: ctx.userId,
+      timestamp: new Date(),
+      notes
+    });
+
+    await this.raiseLowStockAlert(ctx, item);
+    return item;
+  }
+
+  async stockOut(ctx: TenantContext, itemId: string, quantity: number, notes?: string) {
+    const item = await this.repo.findById(ctx, itemId);
+    if (!item) throw new NotFoundException('Inventory item not found');
+    if (item.type === 'ASSET' && quantity !== 1) {
+      throw new BadRequestException('Assets can only be removed one at a time');
+    }
+    if (item.availableQuantity < quantity) {
+      throw new BadRequestException('Not enough available inventory');
+    }
+
+    const previousQuantity = item.availableQuantity;
+    item.quantity -= quantity;
+    item.availableQuantity -= quantity;
+    item.status = item.availableQuantity === 0 ? 'ASSIGNED' : 'AVAILABLE';
+    await item.save();
+
+    await this.transactions.create({
+      tenantId: ctx.tenantId,
+      itemId,
+      type: 'STOCK_OUT',
+      quantity,
+      previousQuantity,
+      newQuantity: item.availableQuantity,
+      userId: ctx.userId,
+      timestamp: new Date(),
+      notes
+    });
+
+    await this.raiseLowStockAlert(ctx, item);
     return item;
   }
 

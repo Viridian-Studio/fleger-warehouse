@@ -23,6 +23,18 @@ export class CreateVehicleDto {
   currentMileage?: number;
 
   @IsOptional()
+  @IsNumber()
+  nextServiceMileage?: number;
+
+  @IsOptional()
+  @IsString()
+  inspectionExpiry?: string;
+
+  @IsOptional()
+  @IsString()
+  insuranceExpiry?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

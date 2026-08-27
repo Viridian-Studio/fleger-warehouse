@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { InventoryService } from '../inventory/inventory.service';
 import { EmployeesService } from '../employees/employees.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { CreateInventoryAssignmentDto } from './dto/create-inventory-assignment.dto';
 import { CreateVehicleAssignmentDto } from './dto/create-vehicle-assignment.dto';
@@ -18,7 +19,8 @@ export class AssignmentsService {
     @InjectModel(VehicleAssignment.name) private readonly vehicleAssignments: Model<VehicleAssignment>,
     private readonly inventory: InventoryService,
     private readonly employees: EmployeesService,
-    private readonly vehicles: VehiclesService
+    private readonly vehicles: VehiclesService,
+    private readonly notifications: NotificationsService
   ) {}
 
   list(ctx: TenantContext) {
@@ -30,12 +32,12 @@ export class AssignmentsService {
   }
 
   async assignInventory(ctx: TenantContext, dto: CreateInventoryAssignmentDto) {
-    await this.inventory.reserve(ctx, dto.itemId, dto.quantity, {
+    const item = await this.inventory.reserve(ctx, dto.itemId, dto.quantity, {
       employeeId: dto.targetType === 'EMPLOYEE' ? dto.targetId : undefined,
       vehicleId: dto.targetType === 'VEHICLE' ? dto.targetId : undefined
     });
 
-    return this.assignments.create({
+    const assignment = await this.assignments.create({
       tenantId: ctx.tenantId,
       itemId: dto.itemId,
       targetType: dto.targetType,
@@ -45,6 +47,17 @@ export class AssignmentsService {
       assignedBy: ctx.userId,
       status: 'ACTIVE'
     });
+
+    await this.notifications.create({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      type: 'inventory.assigned',
+      title: 'Inventory assigned',
+      message: `${dto.quantity} × ${item.name} assigned to ${dto.targetType.toLowerCase()}`,
+      link: '/assignments'
+    });
+
+    return assignment;
   }
 
   async returnInventory(ctx: TenantContext, id: string) {
@@ -59,6 +72,15 @@ export class AssignmentsService {
     await this.inventory.release(ctx, assignment.itemId, assignment.quantity, {
       employeeId: assignment.targetType === 'EMPLOYEE' ? assignment.targetId : undefined,
       vehicleId: assignment.targetType === 'VEHICLE' ? assignment.targetId : undefined
+    });
+
+    await this.notifications.create({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      type: 'inventory.returned',
+      title: 'Inventory returned',
+      message: `${assignment.quantity} × item returned`,
+      link: '/assignments'
     });
 
     return assignment;
@@ -89,6 +111,14 @@ export class AssignmentsService {
     });
 
     await this.vehicles.markAssigned(ctx, dto.vehicleId);
+    await this.notifications.create({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      type: 'vehicle.assigned',
+      title: 'Vehicle assigned',
+      message: `${vehicle.licensePlate} assigned to ${employee.firstName} ${employee.lastName}`,
+      link: '/assignments'
+    });
     return assignment;
   }
 
@@ -110,6 +140,14 @@ export class AssignmentsService {
     if (!assignment) throw new NotFoundException('Active vehicle assignment not found');
 
     await this.vehicles.markAvailable(ctx, assignment.vehicleId, dto.mileageAtReturn);
+    await this.notifications.create({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      type: 'vehicle.returned',
+      title: 'Vehicle returned',
+      message: `Vehicle assignment returned`,
+      link: '/assignments'
+    });
     return assignment;
   }
 }
