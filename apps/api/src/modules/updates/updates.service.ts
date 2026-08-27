@@ -13,7 +13,7 @@ export class UpdatesService {
   ) {}
 
   async list() {
-    const updates = await this.updates.find().sort({ buildNumber: -1 }).lean();
+    const updates = await this.updates.find().sort({ releasedAt: -1 }).lean();
     return updates.map((u) => ({
       _id: String(u._id),
       buildName: u.buildName,
