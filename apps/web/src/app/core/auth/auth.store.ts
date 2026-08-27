@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 export interface AuthUser {
   sub: string;
@@ -77,7 +78,7 @@ export class AuthStore {
     this.refreshing = (async () => {
       try {
         const response = await firstValueFrom(
-          this.http.post<RefreshResponse>('http://localhost:3000/api/v1/auth/refresh', { refreshToken: rt })
+          this.http.post<RefreshResponse>(`${environment.apiBaseUrl}/auth/refresh`, { refreshToken: rt })
         );
         this.login(response.accessToken, response.refreshToken, response.user);
         return true;

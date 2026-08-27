@@ -103,8 +103,7 @@ interface Tenant {
         <app-modal title="Create tenant" description="Provision a new tenant on the platform." size="md" (close)="closeCreate()">
           <form class="modal-form" [formGroup]="form" (ngSubmit)="createTenant()">
             <div class="form-grid">
-              <label class="field"><span class="field-label">Tenant name <span class="req">*</span></span><input formControlName="name" /></label>
-              <label class="field"><span class="field-label">Slug <span class="req">*</span></span><input formControlName="slug" /></label>
+              <label class="field full"><span class="field-label">Tenant name <span class="req">*</span></span><input formControlName="name" /></label>
               <label class="field full"><span class="field-label">Plan</span>
                 <select formControlName="planCode">
                   <option value="STARTER">Starter</option>
@@ -155,7 +154,6 @@ export class PlatformAdminComponent {
   readonly skeletons = [1, 2, 3, 4, 5, 6];
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
-    slug: ['', Validators.required],
     planCode: ['STARTER', Validators.required]
   });
 
@@ -180,7 +178,7 @@ export class PlatformAdminComponent {
   }
 
   openCreate() {
-    this.form.reset({ name: '', slug: '', planCode: 'STARTER' });
+    this.form.reset({ name: '', planCode: 'STARTER' });
     this.showCreate.set(true);
   }
 
@@ -224,10 +222,9 @@ export class PlatformAdminComponent {
   async createTenant() {
     if (this.form.invalid || this.saving()) return;
     const name = this.form.controls.name.value;
-    const slug = this.form.controls.slug.value;
     const confirmed = await this.confirm.confirm({
       title: 'Create tenant?',
-      message: `Are you sure you want to create "${name}" with slug "${slug}"?`,
+      message: `Are you sure you want to create "${name}"? A slug will be generated automatically.`,
       confirmLabel: 'Create tenant'
     });
     if (!confirmed) return;

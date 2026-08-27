@@ -10,6 +10,7 @@ import { ApiService } from '../../core/api/api.service';
 import { IconDirective } from '../../shared/ui/icon.directive';
 import { TooltipDirective } from '../../shared/ui/tooltip.directive';
 import { TranslatePipe } from '../../shared/pipes/translate.pipe';
+import { environment } from '../../../environments/environment';
 
 interface LoginResponse {
   accessToken: string;
@@ -229,7 +230,7 @@ export class LoginComponent {
     this.error.set('');
 
     this.http.post<LoginResponse>(
-      'http://localhost:3000/api/v1/auth/login',
+      `${environment.apiBaseUrl}/auth/login`,
       this.form.getRawValue()
     ).subscribe({
       next: (response) => {

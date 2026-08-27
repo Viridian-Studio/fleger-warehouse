@@ -10,8 +10,9 @@ class CreateTenantDto {
   @IsString()
   name!: string;
 
+  @IsOptional()
   @IsString()
-  slug!: string;
+  slug?: string;
 
   @IsOptional()
   @IsString()
@@ -42,16 +43,27 @@ export class PlatformAdminController {
   }
 
   @Post('tenants')
-  createTenant(@Req() request: { user: { platformAdmin?: boolean; superAdmin?: boolean } }, @Body() dto: CreateTenantDto) {
+  async createTenant(@Req() request: { user: { platformAdmin?: boolean; superAdmin?: boolean } }, @Body() dto: CreateTenantDto) {
     assertPlatformAdmin(request);
+    const slug = dto.slug?.trim() ? slugify(dto.slug!) : await this.generateUniqueSlug(dto.name);
     return this.tenants.create({
       name: dto.name,
-      slug: dto.slug.toLowerCase(),
+      slug,
       planCode: dto.planCode ?? 'STARTER',
       status: 'ACTIVE',
       settings: {},
       branding: {}
     });
+  }
+
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base = slugify(name);
+    let slug = base || 'tenant';
+    let suffix = 1;
+    while (await this.tenants.exists({ slug })) {
+      slug = `${base || 'tenant'}-${suffix++}`;
+    }
+    return slug;
   }
 
   @Patch('tenants/:id/status')
@@ -96,4 +108,15 @@ function assertPlatformAdmin(request: { user: { platformAdmin?: boolean; superAd
   if (!request.user.platformAdmin && !request.user.superAdmin) {
     throw new ForbiddenException('Super admin access required');
   }
+}
+
+function slugify(value: string): string {
+  return value
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

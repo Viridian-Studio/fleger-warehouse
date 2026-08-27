@@ -2,10 +2,11 @@ import { HttpClient, HttpErrorResponse, HttpHandlerFn, HttpInterceptorFn, HttpRe
 import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, catchError, filter, from, switchMap, take, throwError } from 'rxjs';
 import { AuthStore } from '../auth/auth.store';
+import { environment } from '../../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly baseUrl = 'http://localhost:3000/api/v1';
+  private readonly baseUrl = environment.apiBaseUrl;
 
   constructor(private readonly http: HttpClient) {}
 
