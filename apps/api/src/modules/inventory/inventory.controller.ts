@@ -8,6 +8,7 @@ import { TenantGuard } from '../../common/tenant/tenant.guard';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { AdjustInventoryItemDto } from './dto/adjust-inventory-item.dto';
 import { StockOperationDto } from './dto/stock-operation.dto';
+import { ListInventoryItemsDto } from './dto/list-inventory-items.dto';
 import { InventoryService } from './inventory.service';
 
 @ApiTags('inventory')
@@ -19,8 +20,8 @@ export class InventoryController {
 
   @RequirePermissions('inventory.read')
   @Get('items')
-  list(@Req() request: { tenantContext: TenantContext }, @Query('categoryId') categoryId?: string) {
-    return this.inventory.list(request.tenantContext, categoryId);
+  list(@Req() request: { tenantContext: TenantContext }, @Query() query: ListInventoryItemsDto) {
+    return this.inventory.list(request.tenantContext, query);
   }
 
   @RequirePermissions('inventory.create')

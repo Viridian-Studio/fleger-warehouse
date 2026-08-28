@@ -6,9 +6,21 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { TenantScopedRepository } from '../../common/tenant/tenant-scoped.repository';
 import { nextSequentialNumber } from '../../common/tenant/number-generator';
+import { clampPagination, PaginatedResult } from '../../common/pagination/paginated-result';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { InventoryItem } from './schemas/inventory-item.schema';
 import { InventoryTransaction } from './schemas/inventory-transaction.schema';
+
+export interface InventoryListStats {
+  totalItems: number;
+  availableUnits: number;
+  assignedUnits: number;
+  lowStockCount: number;
+}
+
+export interface PaginatedInventoryResult extends PaginatedResult<InventoryItem> {
+  stats: InventoryListStats;
+}
 
 @Injectable()
 export class InventoryService {
@@ -23,9 +35,84 @@ export class InventoryService {
     this.repo = new TenantScopedRepository(items);
   }
 
-  list(ctx: TenantContext, categoryId?: string) {
-    const filter = categoryId ? { categoryId } : {};
-    return this.repo.find(ctx, filter).sort({ name: 1 });
+  async list(
+    ctx: TenantContext,
+    options: { page?: number; pageSize?: number; search?: string; categoryId?: string } = {}
+  ): Promise<PaginatedInventoryResult> {
+    const { page, pageSize } = clampPagination(options.page, options.pageSize);
+    const baseFilter: Record<string, unknown> = { tenantId: ctx.tenantId };
+    if (options.categoryId) baseFilter.categoryId = options.categoryId;
+
+    const listFilter: Record<string, unknown> = { ...baseFilter };
+    const search = options.search?.trim();
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(escaped, 'i');
+      listFilter.$or = [
+        { name: rx },
+        { inventoryNumber: rx },
+        { serialNumber: rx },
+        { description: rx }
+      ];
+    }
+
+    const [items, total, statsAgg] = await Promise.all([
+      this.items
+        .find(listFilter)
+        .sort({ name: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .exec(),
+      this.items.countDocuments(listFilter).exec(),
+      this.aggregateStats(baseFilter)
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+      stats: statsAgg
+    };
+  }
+
+  private async aggregateStats(baseFilter: Record<string, unknown>): Promise<InventoryListStats> {
+    const [result] = await this.items
+      .aggregate<InventoryListStats>([
+        { $match: baseFilter },
+        {
+          $group: {
+            _id: null,
+            totalItems: { $sum: 1 },
+            availableUnits: { $sum: '$availableQuantity' },
+            assignedUnits: { $sum: { $max: [{ $subtract: ['$quantity', '$availableQuantity'] }, 0] } },
+            lowStockCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ['$type', 'QUANTITY'] },
+                      { $lte: ['$availableQuantity', '$lowStockThreshold'] }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ])
+      .exec();
+    return (
+      result ?? {
+        totalItems: 0,
+        availableUnits: 0,
+        assignedUnits: 0,
+        lowStockCount: 0
+      }
+    );
   }
 
   detail(ctx: TenantContext, id: string) {
@@ -51,9 +138,33 @@ export class InventoryService {
     throw new BadRequestException('Could not generate a unique inventory number');
   }
 
-  update(ctx: TenantContext, id: string, dto: Partial<CreateInventoryItemDto>) {
-    const { quantity: _quantity, inventoryNumber: _inventoryNumber, ...safeUpdate } = dto;
-    return this.repo.updateById(ctx, id, safeUpdate);
+  async update(ctx: TenantContext, id: string, dto: Partial<CreateInventoryItemDto>) {
+    const { quantity, inventoryNumber: _inventoryNumber, ...safeUpdate } = dto;
+
+    if (quantity === undefined) {
+      return this.repo.updateById(ctx, id, safeUpdate);
+    }
+
+    const item = await this.repo.findById(ctx, id);
+    if (!item) throw new NotFoundException('Inventory item not found');
+
+    const assignedQuantity = item.quantity - item.availableQuantity;
+    if (quantity < assignedQuantity) {
+      throw new BadRequestException('Quantity cannot be lower than currently assigned quantity');
+    }
+    if (item.type === 'ASSET' && quantity > 1) {
+      throw new BadRequestException('Asset quantity cannot exceed 1');
+    }
+
+    const availableQuantity = quantity - assignedQuantity;
+    const status = availableQuantity === 0 ? 'ASSIGNED' : item.status === 'ASSIGNED' ? 'ASSIGNED' : 'AVAILABLE';
+
+    return this.repo.updateById(ctx, id, {
+      ...safeUpdate,
+      quantity,
+      availableQuantity,
+      status
+    });
   }
 
   remove(ctx: TenantContext, id: string) {

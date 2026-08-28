@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { ApiService } from '../../core/api/api.service';
 import { TenantStore } from '../../core/tenant/tenant.store';
 import { IconDirective, AppIconName } from '../../shared/ui/icon.directive';
@@ -60,6 +61,22 @@ interface Vehicle {
 
 type LoadState = 'loading' | 'ready' | 'error';
 
+interface InventoryListStats {
+  totalItems: number;
+  availableUnits: number;
+  assignedUnits: number;
+  lowStockCount: number;
+}
+
+interface PaginatedInventory {
+  items: InventoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  stats: InventoryListStats;
+}
+
 @Component({
   selector: 'app-inventory',
   standalone: true,
@@ -69,7 +86,7 @@ type LoadState = 'loading' | 'ready' | 'error';
       <div class="page-header">
         <div class="page-title">
           <h1>Inventory</h1>
-          <p>{{ items().length }} items · {{ lowStockCount() }} low-stock records · {{ availableUnits() }} available units</p>
+          <p>{{ stats().totalItems }} items · {{ stats().lowStockCount }} low-stock records · {{ stats().availableUnits }} available units</p>
         </div>
         <div class="page-actions">
           <button class="btn btn--ghost" type="button" [class.btn--loading]="loading()" (click)="load()" appTooltip="Refresh">
@@ -89,22 +106,22 @@ type LoadState = 'loading' | 'ready' | 'error';
       <div class="metrics">
         <article class="mini-metric">
           <span class="mini-icon" appIcon="Boxes" [size]="18"></span>
-          <div><small>Total items</small><strong>{{ items().length }}</strong></div>
+          <div><small>Total items</small><strong>{{ stats().totalItems }}</strong></div>
         </article>
         <article class="mini-metric">
           <span class="mini-icon good" appIcon="CircleCheck" [size]="18"></span>
-          <div><small>Available units</small><strong>{{ availableUnits() }}</strong></div>
+          <div><small>Available units</small><strong>{{ stats().availableUnits }}</strong></div>
         </article>
         <article class="mini-metric">
           <span class="mini-icon info" appIcon="ClipboardCheck" [size]="18"></span>
-          <div><small>Assigned units</small><strong>{{ assignedUnits() }}</strong></div>
+          <div><small>Assigned units</small><strong>{{ stats().assignedUnits }}</strong></div>
         </article>
       </div>
 
       <div class="filter-bar">
         <div class="input-affix search-field">
           <span class="affix-icon" appIcon="Search" [size]="16"></span>
-          <input type="text" [value]="search()" (input)="search.set($any($event.target).value)" placeholder="Search inventory…" />
+          <input type="text" [value]="search()" (input)="onSearchInput($any($event.target).value)" placeholder="Search inventory…" />
         </div>
         <label class="field filter-field">
           <span class="field-label">Category</span>
@@ -115,12 +132,21 @@ type LoadState = 'loading' | 'ready' | 'error';
             }
           </select>
         </label>
+        <label class="field page-size-field">
+          <span class="field-label">Per page</span>
+          <select [value]="pageSize()" (change)="changePageSize($any($event.target).value)">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
       </div>
 
       <div class="table-shell">
         <div class="table-title">
           <h2>Stock list</h2>
-          <span class="table-meta">{{ filteredItems().length }} of {{ items().length }} records</span>
+          <span class="table-meta">{{ total() }} records</span>
         </div>
         <div class="table-scroll">
           @if (state() === 'loading') {
@@ -141,15 +167,17 @@ type LoadState = 'loading' | 'ready' | 'error';
               <p>Something went wrong while fetching the stock list. Please try again.</p>
               <button class="btn btn--ghost" type="button" (click)="load()"><span appIcon="RefreshCw" [size]="16"></span>Try again</button>
             </div>
-          } @else if (filteredItems().length === 0) {
-            <app-empty-state icon="Boxes" title="No inventory items yet" description="Add your first inventory item to start tracking warehouse stock.">
-              <button class="btn btn--primary" type="button" (click)="openCreate()"><span appIcon="Plus" [size]="16"></span>Add item</button>
+          } @else if (items().length === 0) {
+            <app-empty-state icon="Boxes" title="No inventory items found" [description]="search() ? 'No items match your search. Try different keywords.' : 'Add your first inventory item to start tracking warehouse stock.'">
+              @if (!search()) {
+                <button class="btn btn--primary" type="button" (click)="openCreate()"><span appIcon="Plus" [size]="16"></span>Add item</button>
+              }
             </app-empty-state>
           } @else {
             <div class="row head">
               <span>Name</span><span>Number</span><span>Category</span><span>Type</span><span>Available</span><span>Status</span><span></span>
             </div>
-            @for (item of filteredItems(); track item._id) {
+            @for (item of items(); track item._id) {
               <div class="row" [class.selected]="selected()?._id === item._id" (click)="select(item)">
                 <span class="col-strong truncate">{{ item.name }}</span>
                 <span class="col-muted mono">{{ item.inventoryNumber }}</span>
@@ -169,6 +197,17 @@ type LoadState = 'loading' | 'ready' | 'error';
             }
           }
         </div>
+        @if (totalPages() > 1) {
+          <div class="pagination">
+            <button class="btn btn--ghost btn--sm" type="button" [disabled]="page() === 1 || loading()" (click)="goToPage(page() - 1)">
+              <span appIcon="ChevronLeft" [size]="16"></span> Prev
+            </button>
+            <span class="pagination-info">Page {{ page() }} of {{ totalPages() }}</span>
+            <button class="btn btn--ghost btn--sm" type="button" [disabled]="page() >= totalPages() || loading()" (click)="goToPage(page() + 1)">
+              Next <span appIcon="ChevronRight" [size]="16"></span>
+            </button>
+          </div>
+        }
       </div>
 
       <!-- Create modal -->
@@ -226,6 +265,7 @@ type LoadState = 'loading' | 'ready' | 'error';
               <div class="form-grid">
                 <label class="field"><span class="field-label">Name <span class="req">*</span></span><input formControlName="name" /></label>
                 <label class="field"><span class="field-label">Type</span><select formControlName="type"><option value="QUANTITY">Quantity</option><option value="ASSET">Asset</option></select></label>
+                <label class="field"><span class="field-label">Quantity <span class="req">*</span></span><input type="number" min="0" formControlName="quantity" /></label>
                 <label class="field"><span class="field-label">Unit</span><input formControlName="unit" /></label>
                 <label class="field"><span class="field-label">Location</span><input formControlName="location" /></label>
                 <label class="field"><span class="field-label">Category</span>
@@ -387,7 +427,14 @@ type LoadState = 'loading' | 'ready' | 'error';
     .filter-bar { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
     .search-field { flex: 1; min-width: 220px; }
     .filter-field { min-width: 200px; }
-    .filter-field .field-label { display: block; }
+    .page-size-field { min-width: 120px; }
+    .filter-field .field-label, .page-size-field .field-label { display: block; }
+
+    .pagination {
+      display: flex; align-items: center; justify-content: center; gap: var(--space-4);
+      padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft);
+    }
+    .pagination-info { color: var(--muted); font-size: 13px; }
 
     .row { display: grid; grid-template-columns: 1.4fr 1fr 1fr .8fr .8fr .8fr 80px; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line-soft); align-items: center; }
     .row:first-child { border-top: 0; }
@@ -462,9 +509,15 @@ export class InventoryComponent {
   readonly state = signal<LoadState>('loading');
   readonly categoryFilter = signal<string>('');
   readonly search = signal('');
+  readonly page = signal(1);
+  readonly pageSize = signal(25);
+  readonly total = signal(0);
+  readonly totalPages = signal(0);
+  readonly stats = signal<InventoryListStats>({ totalItems: 0, availableUnits: 0, assignedUnits: 0, lowStockCount: 0 });
   readonly editingCategoryId = signal<string | null>(null);
   readonly editingCategoryName = signal('');
   readonly skeletons = [1, 2, 3, 4, 5, 6];
+  private readonly search$ = new Subject<string>();
   readonly categoryForm = this.fb.nonNullable.group({
     name: ['', Validators.required],
     code: ['']
@@ -484,6 +537,7 @@ export class InventoryComponent {
   readonly editForm = this.fb.nonNullable.group({
     name: ['', Validators.required],
     type: ['QUANTITY', Validators.required],
+    quantity: [1, [Validators.required, Validators.min(0)]],
     unit: ['db'],
     location: [''],
     categoryId: [''],
@@ -499,38 +553,64 @@ export class InventoryComponent {
     quantity: [1, [Validators.required, Validators.min(1)]]
   });
 
-  readonly filteredItems = computed(() => {
-    const q = this.search().trim().toLowerCase();
-    const items = this.items();
-    if (!q) return items;
-    return items.filter((item) =>
-      item.name.toLowerCase().includes(q) ||
-      item.inventoryNumber.toLowerCase().includes(q) ||
-      (item.serialNumber ?? '').toLowerCase().includes(q)
-    );
-  });
-
   constructor() {
     effect(() => {
       this.tenants.version();
       this.categoryFilter();
+      this.pageSize();
       if (this.tenants.activeWorkspace()) untracked(() => this.load());
     });
+
+    this.search$
+      .pipe(debounceTime(300), distinctUntilChanged())
+      .subscribe(() => {
+        this.page.set(1);
+        untracked(() => this.load());
+      });
 
     this.assignForm.controls.targetType.valueChanges.subscribe(() => {
       this.assignForm.controls.targetId.setValue('');
     });
   }
 
+  onSearchInput(value: string) {
+    this.search.set(value);
+    this.search$.next(value);
+  }
+
+  changePageSize(value: string) {
+    const size = Number.parseInt(value, 10);
+    if (!Number.isFinite(size)) return;
+    this.pageSize.set(size);
+    this.page.set(1);
+  }
+
+  goToPage(p: number) {
+    if (p < 1 || p > this.totalPages() || p === this.page()) return;
+    this.page.set(p);
+    this.load();
+  }
+
   load() {
     if (this.loading()) return;
     this.loading.set(true);
     this.state.set('loading');
+    const params = new URLSearchParams();
+    params.set('page', String(this.page()));
+    params.set('pageSize', String(this.pageSize()));
+    const search = this.search().trim();
+    if (search) params.set('search', search);
     const categoryId = this.categoryFilter();
-    const itemsUrl = categoryId ? `/inventory/items?categoryId=${categoryId}` : '/inventory/items';
-    this.api.get<InventoryItem[]>(itemsUrl).subscribe({
-      next: (items) => {
-        this.items.set(items);
+    if (categoryId) params.set('categoryId', categoryId);
+    this.api.get<PaginatedInventory>(`/inventory/items?${params.toString()}`).subscribe({
+      next: (result) => {
+        this.items.set(result.items);
+        this.total.set(result.total);
+        this.totalPages.set(result.totalPages);
+        this.stats.set(result.stats);
+        if (result.totalPages > 0 && this.page() > result.totalPages) {
+          this.page.set(result.totalPages);
+        }
         this.loading.set(false);
         this.state.set('ready');
       },
@@ -599,6 +679,7 @@ export class InventoryComponent {
         this.editForm.reset({
           name: fresh.name,
           type: fresh.type,
+          quantity: fresh.quantity,
           unit: (fresh as InventoryItem & { unit?: string }).unit ?? 'db',
           location: fresh.location ?? '',
           categoryId: fresh.categoryId ?? '',
@@ -692,18 +773,6 @@ export class InventoryComponent {
         this.toasts.error('Inventory assignment failed.');
       }
     });
-  }
-
-  availableUnits() {
-    return this.items().reduce((sum, item) => sum + item.availableQuantity, 0);
-  }
-
-  assignedUnits() {
-    return this.items().reduce((sum, item) => sum + Math.max(item.quantity - item.availableQuantity, 0), 0);
-  }
-
-  lowStockCount() {
-    return this.items().filter((item) => item.type === 'QUANTITY' && item.availableQuantity <= (item.lowStockThreshold ?? 5)).length;
   }
 
   // --- Category management ---

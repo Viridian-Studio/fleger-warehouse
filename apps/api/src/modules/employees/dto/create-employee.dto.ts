@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsBoolean, IsEmail, IsOptional, IsString } from 'class-validator';
 
 export class CreateEmployeeDto {
@@ -12,6 +13,7 @@ export class CreateEmployeeDto {
   lastName!: string;
 
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsEmail()
   email?: string;
 
