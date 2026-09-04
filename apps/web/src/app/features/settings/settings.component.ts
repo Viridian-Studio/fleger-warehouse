@@ -1,9 +1,12 @@
+import { DatePipe } from '@angular/common';
 import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api/api.service';
 import { AuthStore, AuthUser } from '../../core/auth/auth.store';
 import { TenantStore } from '../../core/tenant/tenant.store';
+import { ConfirmService } from '../../shared/ui/confirm.service';
 import { IconDirective } from '../../shared/ui/icon.directive';
+import { ModalComponent } from '../../shared/ui/modal.component';
 import { ToastService } from '../../shared/ui/toast.service';
 
 interface Tenant {
@@ -13,10 +16,17 @@ interface Tenant {
   settings?: Record<string, string>;
 }
 
+interface ShopConnectionStatus {
+  connected: boolean;
+  keyPrefix?: string;
+  createdAt?: string;
+  lastUsedAt?: string;
+}
+
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [ReactiveFormsModule, IconDirective],
+  imports: [ReactiveFormsModule, IconDirective, ModalComponent, DatePipe],
   template: `
     <section class="page">
       <div class="page-header">
@@ -113,6 +123,64 @@ interface Tenant {
           </button>
         </div>
       </form>
+
+      <!-- Ecosystem connections -->
+      <div class="ecosystem-section">
+        <span class="eyebrow">Ecosystem</span>
+
+        <div class="card shop-card">
+          <div class="card-head">
+            <div>
+              <h2><span appIcon="Plug" [size]="18"></span> Viridian Commerce</h2>
+              <p>Connect your Viridian Commerce shop to this warehouse so it can pull inventory data.</p>
+            </div>
+          </div>
+          <div class="card-body">
+            @if (shopConnectionLoading()) {
+              <p class="muted">Loading…</p>
+            } @else if (shopConnection()?.connected) {
+              <div class="shop-status">
+                <span class="badge badge--good">Connected</span>
+                <span class="muted">Key <code>{{ shopConnection()!.keyPrefix }}…</code></span>
+                @if (shopConnection()!.lastUsedAt) {
+                  <span class="muted">· last used {{ shopConnection()!.lastUsedAt | date: 'short' }}</span>
+                }
+              </div>
+              <div class="cluster" style="gap: var(--space-2); margin-top: var(--space-3)">
+                <button class="btn btn--secondary btn--sm" type="button" [class.btn--loading]="generatingKey()" [disabled]="generatingKey()" (click)="generateShopKey()">
+                  @if (generatingKey()) { <span class="spinner"></span> } @else { <span appIcon="RefreshCw" [size]="14"></span> }
+                  Regenerate key
+                </button>
+                <button class="btn btn--danger btn--sm" type="button" (click)="revokeShopKey()">
+                  <span appIcon="Unplug" [size]="14"></span>
+                  Disconnect
+                </button>
+              </div>
+            } @else {
+              <p class="muted">No shop is connected yet. Generate an API key and paste it into the Viridian Commerce admin settings.</p>
+              <button class="btn btn--primary btn--sm" type="button" style="margin-top: var(--space-3)" [class.btn--loading]="generatingKey()" [disabled]="generatingKey()" (click)="generateShopKey()">
+                @if (generatingKey()) { <span class="spinner"></span> } @else { <span appIcon="Plug" [size]="14"></span> }
+                Generate API key
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+      @if (generatedKey()) {
+        <app-modal title="API key generated" [closable]="false">
+          <p>Copy this key now — it won't be shown again. Paste it into the shop's admin settings to connect it to this warehouse.</p>
+          <div class="key-box">
+            <code>{{ generatedKey() }}</code>
+            <button class="btn btn--secondary btn--sm" type="button" (click)="copyGeneratedKey()">
+              <span appIcon="Copy" [size]="14"></span>
+              Copy
+            </button>
+          </div>
+          <div slot="footer" class="cluster" style="justify-content: flex-end; padding-top: var(--space-3)">
+            <button class="btn btn--primary btn--sm" type="button" (click)="dismissGeneratedKey()">Done</button>
+          </div>
+        </app-modal>
+      }
     </section>
   `,
   styles: [`
@@ -127,6 +195,12 @@ interface Tenant {
       .account-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+    .ecosystem-section { margin-top: var(--space-5); display: grid; gap: var(--space-2); }
+    .shop-card { margin: 0; }
+    .shop-status { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .key-box { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--surface-soft); border-radius: var(--radius-sm); }
+    .key-box code { flex: 1; font-size: 12px; word-break: break-all; }
   `]
 })
 export class SettingsComponent {
@@ -135,7 +209,12 @@ export class SettingsComponent {
   private readonly tenants = inject(TenantStore);
   private readonly toasts = inject(ToastService);
   private readonly auth = inject(AuthStore);
+  private readonly confirmService = inject(ConfirmService);
   readonly tenant = signal<Tenant | null>(null);
+  readonly shopConnection = signal<ShopConnectionStatus | null>(null);
+  readonly shopConnectionLoading = signal(false);
+  readonly generatingKey = signal(false);
+  readonly generatedKey = signal<string | null>(null);
   readonly saving = signal(false);
   readonly savingProfile = signal(false);
   readonly savingPassword = signal(false);
@@ -159,7 +238,12 @@ export class SettingsComponent {
   constructor() {
     effect(() => {
       this.tenants.version();
-      if (this.tenants.activeWorkspace()) untracked(() => this.load());
+      if (this.tenants.activeWorkspace()) {
+        untracked(() => {
+          this.load();
+          this.loadShopConnection();
+        });
+      }
     });
 
     untracked(() => this.loadProfile());
@@ -178,6 +262,61 @@ export class SettingsComponent {
         });
       }
     });
+  }
+
+  loadShopConnection() {
+    this.shopConnectionLoading.set(true);
+    this.api.get<ShopConnectionStatus>('/shop-connections').subscribe({
+      next: (status) => {
+        this.shopConnectionLoading.set(false);
+        this.shopConnection.set(status);
+      },
+      error: () => this.shopConnectionLoading.set(false)
+    });
+  }
+
+  generateShopKey() {
+    if (this.generatingKey()) return;
+    this.generatingKey.set(true);
+    this.api.post<{ apiKey: string; keyPrefix: string }>('/shop-connections/generate', {}).subscribe({
+      next: (result) => {
+        this.generatingKey.set(false);
+        this.generatedKey.set(result.apiKey);
+        this.loadShopConnection();
+      },
+      error: (error) => {
+        this.generatingKey.set(false);
+        this.toasts.error(error?.error?.message ?? 'Could not generate an API key.');
+      }
+    });
+  }
+
+  async revokeShopKey() {
+    const ok = await this.confirmService.confirm({
+      title: 'Disconnect shop?',
+      message: 'The connected shop will no longer be able to reach this warehouse.',
+      confirmLabel: 'Disconnect',
+      danger: true
+    });
+    if (!ok) return;
+    this.api.delete('/shop-connections').subscribe({
+      next: () => {
+        this.toasts.success('Shop disconnected.');
+        this.loadShopConnection();
+      },
+      error: (error) => this.toasts.error(error?.error?.message ?? 'Could not disconnect the shop.')
+    });
+  }
+
+  async copyGeneratedKey() {
+    const key = this.generatedKey();
+    if (!key) return;
+    await navigator.clipboard.writeText(key);
+    this.toasts.success('Copied to clipboard.');
+  }
+
+  dismissGeneratedKey() {
+    this.generatedKey.set(null);
   }
 
   loadProfile() {

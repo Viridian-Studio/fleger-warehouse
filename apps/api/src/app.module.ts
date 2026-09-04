@@ -26,6 +26,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ApplicationDetailsModule } from './modules/application-details/application-details.module';
 import { SearchModule } from './modules/search/search.module';
 import { UpdatesModule } from './modules/updates/updates.module';
+import { ShopIntegrationModule } from './modules/shop-integration/shop-integration.module';
 import { TenantGuardModule } from './common/tenant/tenant-guard.module';
 
 @Module({
@@ -59,6 +60,7 @@ import { TenantGuardModule } from './common/tenant/tenant-guard.module';
     ApplicationDetailsModule,
     SearchModule,
     UpdatesModule,
+    ShopIntegrationModule,
     TenantGuardModule
   ],
   providers: [
