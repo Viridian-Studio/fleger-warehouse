@@ -27,17 +27,21 @@
     "class-validator": "^0.14.2",
     "mongodb": "^6.18.0",
     "mongoose": "^9.9.1",
+    "multer": "^2.2.0",
     "nanoid": "^5.1.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "sharp": "^0.35.4",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
     "@nestjs/schematics": "^11.0.7",
     "@nestjs/testing": "^11.1.28",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^24.1.0",
     "@types/passport-jwt": "^4.0.1",
     "eslint": "^9.32.0",

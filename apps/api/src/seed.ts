@@ -38,7 +38,11 @@ const ALL_PERMISSIONS = [
   'role.manage',
   'settings.manage',
   'updates.read',
-  'updates.manage'
+  'updates.manage',
+  'document.read',
+  'document.create',
+  'document.update',
+  'document.delete'
 ];
 
 async function main() {

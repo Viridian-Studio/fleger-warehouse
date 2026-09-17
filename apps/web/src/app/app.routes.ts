@@ -13,6 +13,7 @@ import { AuditLogComponent } from './features/audit-log/audit-log.component';
 import { SettingsComponent } from './features/settings/settings.component';
 import { PlatformAdminComponent } from './features/platform-admin/platform-admin.component';
 import { UpdatesComponent } from './features/updates/updates.component';
+import { DocumentsComponent } from './features/documents/documents.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
@@ -28,6 +29,7 @@ export const routes: Routes = [
       { path: 'employees', component: EmployeesComponent },
       { path: 'vehicles', component: VehiclesComponent },
       { path: 'assignments', component: AssignmentsComponent },
+      { path: 'documents', component: DocumentsComponent },
       { path: 'team', component: TeamComponent },
       { path: 'roles', component: RolesComponent },
       { path: 'audit-log', component: AuditLogComponent },

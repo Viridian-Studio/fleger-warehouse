@@ -607,6 +607,7 @@ export class ShellComponent {
           { path: '/employees', labelKey: 'shell.nav.employees', icon: 'Users' },
           { path: '/vehicles', labelKey: 'shell.nav.vehicles', icon: 'Truck' },
           { path: '/assignments', labelKey: 'shell.nav.assignments', icon: 'ClipboardCheck' },
+          { path: '/documents', labelKey: 'shell.nav.documents', icon: 'Folder', permission: 'document.read' },
         ],
       },
       {

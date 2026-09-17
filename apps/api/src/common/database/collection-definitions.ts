@@ -116,5 +116,19 @@ export const COLLECTION_DEFINITIONS: CollectionDefinition[] = [
       { key: { tokenHash: 1 }, unique: true, name: 'uniq_invitations_token_hash' },
       { key: { expiresAt: 1 }, name: 'idx_invitations_expires_at', expireAfterSeconds: 0 }
     ]
+  },
+  {
+    name: 'documentfolders',
+    indexes: [
+      { key: { tenantId: 1, parentId: 1, name: 1 }, unique: true, name: 'uniq_document_folders_parent_name' }
+    ]
+  },
+  {
+    name: 'documents',
+    indexes: [
+      { key: { tenantId: 1, folderId: 1, name: 1 }, name: 'idx_documents_tenant_folder_name' },
+      { key: { tenantId: 1, createdAt: -1 }, name: 'idx_documents_tenant_created' },
+      { key: { tenantId: 1, tags: 1 }, name: 'idx_documents_tenant_tags' }
+    ]
   }
 ];

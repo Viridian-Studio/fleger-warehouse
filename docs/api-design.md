@@ -65,6 +65,27 @@ The backend validates the selected tenant against the authenticated user's activ
 - `GET /vehicles/:id`
 - `PATCH /vehicles/:id`
 
+## Documents
+
+Fájlok a MongoDB GridFS-ben (`documentfiles` bucket), metaadat a `documents` kollekcióban.
+A képek feltöltéskor átméreteződnek és újratömörítődnek, és külön bélyegkép készül hozzájuk.
+
+- `GET /documents` — lista (`folderId`, `search`, `kind`, `tag`, lapozás); a `search` a felismert szövegben is keres
+- `POST /documents` — multipart feltöltés (`file`, `folderId`, `name`, `tags`, `notes`)
+- `GET /documents/:id`
+- `GET /documents/:id/content` — a fájl bájtjai (`?download=1` letöltésként)
+- `GET /documents/:id/thumbnail` — kis előnézeti kép
+- `PATCH /documents/:id` — átnevezés, címkék, megjegyzés, mappa
+- `POST /documents/:id/duplicate` — másolat, opcionálisan másik mappába
+- `DELETE /documents/:id`
+- `GET /documents/:id/text` — eltárolt felismert szöveg
+- `POST /documents/:id/text` — szövegfelismerés futtatása (csak kép, `force` újrafuttatáshoz)
+- `GET /documents/tags`
+- `GET /documents/folders`
+- `POST /documents/folders`
+- `PATCH /documents/folders/:id` — átnevezés vagy áthelyezés
+- `DELETE /documents/folders/:id` — mappa az almappáival és tartalmával együtt
+
 ## Administration
 
 - `GET /team`

@@ -115,6 +115,15 @@ Fontosabb értékek:
 - `API_PORT`: backend port
 - `CORS_ORIGIN`: frontend origin
 
+Dokumentum modul (mind opcionális, ésszerű alapértékkel):
+
+- `IMAGE_MAX_EDGE`: feltöltött képek leghosszabb éle pixelben (alap: `2400`)
+- `IMAGE_QUALITY`: JPEG minőség a tárolt képeknél (alap: `82`)
+- `IMAGE_THUMBNAIL_EDGE`: bélyegkép mérete (alap: `400`)
+- `OCR_LANGUAGES`: Tesseract nyelvek a szövegfelismeréshez (alap: `hun+eng`)
+- `OCR_CACHE_PATH`: nyelvi adatok gyorsítótára (alap: az OS temp könyvtára)
+- `OCR_LANG_PATH`: helyi `.traineddata` könyvtár, ha a szerver nem érheti el a CDN-t
+
 ## Fejlesztői seed
 
 A backend seed parancsa fejlesztői demó adatokat készít elő:

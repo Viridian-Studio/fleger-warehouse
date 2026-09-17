@@ -27,6 +27,7 @@ import { ApplicationDetailsModule } from './modules/application-details/applicat
 import { SearchModule } from './modules/search/search.module';
 import { UpdatesModule } from './modules/updates/updates.module';
 import { ShopIntegrationModule } from './modules/shop-integration/shop-integration.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { TenantGuardModule } from './common/tenant/tenant-guard.module';
 
 @Module({
@@ -61,6 +62,7 @@ import { TenantGuardModule } from './common/tenant/tenant-guard.module';
     SearchModule,
     UpdatesModule,
     ShopIntegrationModule,
+    DocumentsModule,
     TenantGuardModule
   ],
   providers: [

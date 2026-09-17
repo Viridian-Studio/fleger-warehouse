@@ -57,6 +57,15 @@ const PERMISSION_GROUPS: PermissionGroup[] = [
     ]
   },
   {
+    name: 'Documents',
+    permissions: [
+      { value: 'document.read', label: 'Read documents', description: 'Browse, preview and download stored documents.' },
+      { value: 'document.create', label: 'Upload documents', description: 'Upload and duplicate documents.' },
+      { value: 'document.update', label: 'Manage documents', description: 'Rename, tag, move documents and manage folders.' },
+      { value: 'document.delete', label: 'Delete documents', description: 'Permanently delete documents and folders.' }
+    ]
+  },
+  {
     name: 'Team',
     permissions: [
       { value: 'user.read', label: 'Read users', description: 'View workspace members and invitations.' },
