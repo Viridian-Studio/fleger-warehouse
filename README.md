@@ -124,6 +124,20 @@ Dokumentum modul (mind opcionális, ésszerű alapértékkel):
 - `OCR_CACHE_PATH`: nyelvi adatok gyorsítótára (alap: az OS temp könyvtára)
 - `OCR_LANG_PATH`: helyi `.traineddata` könyvtár, ha a szerver nem érheti el a CDN-t
 
+### Reverse proxy és a feltöltési méretkorlát
+
+A dokumentum feltöltés fájlonként 25 MB-ig megy. Az nginx alapértelmezése viszont
+1 MB, és a kérést már a proxy visszautasítja (`413 Request Entity Too Large`),
+mielőtt az API-hoz érne. Az API elé tett nginx server blokkjában ezért kell:
+
+```nginx
+client_max_body_size 32m;
+```
+
+A repóban a `apps/web/nginx.conf` ezt (és az Angular SPA fallbacket, valamint az
+`/api/` proxyt) már tartalmazza; kézzel telepített szerveren a saját site
+konfigot kell kiegészíteni.
+
 ## Fejlesztői seed
 
 A backend seed parancsa fejlesztői demó adatokat készít elő:

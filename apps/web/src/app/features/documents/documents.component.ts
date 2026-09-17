@@ -1920,9 +1920,21 @@ export class DocumentsComponent {
   }
 
   private errorMessage(error: unknown): string {
+    const status = (error as { status?: number })?.status;
+
+    // A reverse proxy answers with HTML, not our JSON, so these need their own
+    // wording — otherwise the user only sees "unexpected error".
+    if (status === 413) {
+      return 'A fájl nagyobb, mint amit a webszerver átenged. Emeld meg a client_max_body_size értéket az nginx konfigban.';
+    }
+    if (status === 0) {
+      return 'Nem sikerült elérni a szervert. Ellenőrizd a kapcsolatot.';
+    }
+
     const message = (error as { error?: { message?: string | string[] } })?.error?.message;
     if (Array.isArray(message)) return message.join(', ');
     if (typeof message === 'string') return message;
+    if (status === 504 || status === 408) return 'A szerver túllépte az időkorlátot. Próbáld újra.';
     return 'Váratlan hiba történt.';
   }
 }
